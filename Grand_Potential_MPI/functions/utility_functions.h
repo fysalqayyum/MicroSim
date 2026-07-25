@@ -266,22 +266,29 @@ void populate_A_matrix(double ***Mat, char *tmpstr, long NUMCOMPONENTS) {
 
 void populate_thermodynamic_matrix(double ***Mat, char *tmpstr, long NUMCOMPONENTS) {
   char **tmp;
-  char *str1, *str2, *token;
-  char *saveptr1, *saveptr2;
+  char *str1, *token;
+  char *saveptr1;
   
-  int i,j,k,l;
+  int i,l;
   long len = (NUMCOMPONENTS-1) + 2;
   long phase1, phase2;
   
   tmp = (char**)malloc(sizeof(char*)*len);
-  for (i = 0; i < len; ++i) {
-    tmp[i] = (char*)malloc(sizeof(char)*10);
-  }
   for (i = 0, str1 = tmpstr; ; i++, str1 = NULL) {
     token = strtok_r(str1, "{,}", &saveptr1);
     if (token == NULL)
         break;
-    strcpy(tmp[i],token);
+    if (i >= len) {
+      fprintf(stderr, "Too many entries in thermodynamic matrix: expected %ld\n", len);
+      free(tmp);
+      exit(EXIT_FAILURE);
+    }
+    tmp[i] = token;
+  }
+  if (i != len) {
+    fprintf(stderr, "Wrong number of entries in thermodynamic matrix: expected %ld, got %d\n", len, i);
+    free(tmp);
+    exit(EXIT_FAILURE);
   }
   phase1 = atoi(tmp[0]);
   phase2 = atoi(tmp[1]);
@@ -292,9 +299,6 @@ void populate_thermodynamic_matrix(double ***Mat, char *tmpstr, long NUMCOMPONEN
    l++;
   }
   
-  for (i = 0; i < len; ++i) {
-    free(tmp[i]);
-  }
   free(tmp);
   tmp = NULL;
   

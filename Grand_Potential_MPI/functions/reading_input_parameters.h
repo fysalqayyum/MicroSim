@@ -32,7 +32,9 @@ void reading_input_parameters(char *argv[]) {
   
   while(fgets(tempbuff,10000,fr)) {
 //   while(MPI_File_read(fr,    tempbuff,    1000,    MPI_CHAR,    &status)){   
-    sscanf(tempbuff, "%1000s = %1000[^;];", tmpstr1, tmpstr2);
+    if (sscanf(tempbuff, "%9999s = %9999[^;];", tmpstr1, tmpstr2) != 2) {
+      continue;
+    }
     if(tmpstr1[0] != '#') {
       // printf("%s - %s\n",  tmpstr1, tmpstr2);
 

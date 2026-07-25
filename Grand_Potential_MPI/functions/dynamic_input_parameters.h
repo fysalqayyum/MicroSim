@@ -64,9 +64,11 @@ void msDyInp_ReInitializeInpParameters()
   
   while(fgets(tempbuff, 10000, File_ptr))
   {
-    sscanf(tempbuff, "%1000s = %1000[^;];", tmpstr1, tmpstr2);
+    if (sscanf(tempbuff, "%9999s = %9999[^;];", tmpstr1, tmpstr2) != 2) {
+      continue;
+    }
 
-    if (tmpstr1[0] != '#' || tmpstr1[0] != '\n')
+    if (tmpstr1[0] != '#')
     {
       if (strcmp(tmpstr1,"DELTA_t")==0) {
         deltat = atof(tmpstr2);
