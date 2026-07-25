@@ -1,238 +1,198 @@
 # MicroSim
-MicroSim is a software stack that consists of phase-field codes that offer flexibility with discretization, models as 
-well as the high-performance computing hardware(CPU/GPU) that they can execute on. Along with this the stack also consists of Multi-physics solver modules 
-that are based on OpenFoam and AMRex libraries(will be added soon). The stack has an integrator interface that is built 
-using python that allows one to create the input and filling files required for the solvers as well as provides 
-a consolidated framework to choose the solver, compile, execute and visualize simulation results.
-The project is a consortium between (IISc Bangalore, IIT Hyderabad, IIT Bombay, IIT Madras, Savitribai Phule Pune University, C-DAC Pune).
-Following is a brief description of the different software modules and details on how to independently execute them.  
 
- [Workshop-cum-demo](https://github.com/ICME-India/MicroSim/releases)  
- 
- [Follow us on LinkedIn](https://github.com/ICME-India/MicroSim/releases)
- 
-## Grand-Potential Model(SERIAL)
-This is multiphase multi-component phase-field solver based on the 
-grand-potential formalism. This is a 2D serial CPU version of the code.
+MicroSim is an open-source collection of phase-field solvers for CPU, MPI,
+CUDA, OpenCL, SYCL, AMReX, and OpenFOAM workflows. The upstream project is a
+collaboration among IISc Bangalore, IIT Hyderabad, IIT Bombay, IIT Madras,
+Savitribai Phule Pune University, and C-DAC Pune.
+
+This repository is a maintained fork of
+[ICME-India/MicroSim](https://github.com/ICME-India/MicroSim). It follows the
+upstream `main` branch while maintaining portability, GPU/HPC, restart, output,
+and reproducibility repairs developed during real cluster use.
+
+## What this fork adds
+
+The maintained changes are deliberately narrow:
+
+- portable macOS/Linux builds for selected CPU and MPI solvers;
+- configurable CUDA architecture and current-toolkit CUB support for
+  `KKS_CuFFT`;
+- a repaired `KKS_OpenCl` `Function_F=4` path with temperature-dependent
+  thermodynamics;
+- correct moving-window refill and temperature evolution along the growth
+  direction;
+- restart-safe absolute timestep handling, ghost-cell initialization, and
+  binary field restoration;
+- correct rank-local binary composition output;
+- safer input parsing for long floating-point values;
+- default OpenCL compiler optimization with a diagnostic rollback switch;
+- an open-source, user-supplied-TDB to MicroSim CSV workflow based on
+  pycalphad;
+- a reusable one-GPU Slurm example and explicit validation limitations.
+
+See [Fork changes](docs/FORK_CHANGES.md), the
+[OpenCL HPC guide](docs/KKS_OPENCL_HPC.md), and
+[validation status](docs/VALIDATION.md).
+
+## Module status
+
+The repository contains modules at different maturity levels. A successful
+build of one module does not validate the others.
+
+| Module | Backend | Status in this fork |
+|---|---|---|
+| `Cahn_Hilliard_FFT_2D` | CPU, FFTW/GSL | Portable build fixes; local smoke-tested |
+| `Grand_Potential_Serial` | CPU | Portable binary-output helpers; local smoke-tested |
+| `Grand_Potential_MPI` | MPI/HDF5 | macOS/Linux portability and parser fixes |
+| `KKS_CuFFT` | CUDA | Current CUB compatibility and selectable GPU architecture |
+| `KKS_OpenCl` | MPI/OpenCL | Maintained fork path; one-rank/one-GPU F4 workflow qualified |
+| `KKS_FD_CUDA_MPI` | CUDA MPI | Upstream module; not ported or qualified by this fork |
+| `Grand_Potential_AMReX` | AMReX | Upstream module; not qualified by this fork |
+| `Grand_Potential_OpenFOAM` | OpenFOAM | Upstream module; not qualified by this fork |
+| `Grand_Potential_SYCL` | SYCL | Upstream beta; not qualified by this fork |
+| `Bridgman_Grain` | OpenFOAM | Upstream experimental module; not qualified by this fork |
+| `Electrochemistry_Module_OpenFoam8` | OpenFOAM 8 | Upstream experimental module; not qualified by this fork |
+
+“Qualified” here means that a controlled software gate passed. It does not
+mean that every material parameter or simulated morphology is experimentally
+calibrated.
+
+## Quick start
+
+Clone this fork:
+
+```bash
+git clone git@github.com:fysalqayyum/MicroSim.git
+cd MicroSim
+```
+
+### KKS OpenCL on a single GPU
+
+The maintained HPC path uses exactly one MPI rank mapped to one OpenCL GPU.
+Multi-rank OpenCL runs are not recommended until the halo/boundary path is
+repaired and requalified.
+
+Build with site-specific paths supplied on the command line:
+
+```bash
+cd KKS_OpenCl
+make microsim_kks_opencl \
+  CC=/path/to/mpicc \
+  GSL_ROOT=/path/to/gsl \
+  CUDA_ROOT=/path/to/cuda
+```
+
+Run from a case directory that contains `Input.in`, `Filling.in`,
+`tdbs_encrypted/`, and the generated `solverloop/` files:
+
+```bash
+/path/to/MicroSim/KKS_OpenCl/microsim_kks_opencl \
+  Input.in Filling.in output_prefix
+```
+
+A site-neutral Slurm template is available under
+[`KKS_OpenCl/examples/single_gpu_slurm`](KKS_OpenCl/examples/single_gpu_slurm).
+No research case or thermodynamic database is bundled. Generate tables from a
+TDB that you are permitted to use with
+[`generate_csv_files_from_tdbs/from_pycalphad`](generate_csv_files_from_tdbs/from_pycalphad).
+
+### KKS CuFFT
+
+```bash
+cd KKS_CuFFT
+make NVCC=/path/to/nvcc ARCH=-arch=sm_80
+./microsim_kks_cufft Input.in Filling.in output_prefix
+```
 
+Choose `ARCH` for the target GPU; do not copy an architecture value from
+another system without checking the device compute capability.
 
-Compilation can be done by a simple "make".
+### Grand Potential serial
 
+```bash
+cd Grand_Potential_Serial
+make
+./microsim_gp Input.in Filling.in output_prefix
+```
 
-For running the following execution command is required
+### Cahn-Hilliard FFT
 
-./microsim_gp name_of_infile name_of_filling_file name_of_output_files
+```bash
+cd Cahn_Hilliard_FFT_2D
+make
+./microsim_ch_fft Input.in Filling.in output_prefix
+```
 
-The files are written in the DATA folder in the .vtk format.
+The exact dependency locations vary by operating system and HPC site. See
+[`Installation_instructions.md`](Installation_instructions.md) and the README
+inside each module before building.
 
-The code has been developed at IISc Bangalore, Department of Materials 
-Engineering by Prof. Abhik Choudhury. 
+## Thermodynamic data
 
-## Grand-Potential Model(MPI)
+This fork does not redistribute private or commercial thermodynamic
+databases. The pycalphad converter accepts a user-supplied Al-Si TDB, performs
+the equilibrium and Hessian calculations in memory, and writes the positional
+CSV tables expected by MicroSim.
 
-This is multiphase multi-component phase-field solver based on the 
-grand-potential formalism. The solver is parallelized using MPI on 
-CPUs and requires the h5pcc compiler for compilation and execution. 
+Thermodynamic data do not provide atomic mobility or phase diffusivity.
+Mobility and diffusivity require independent, citable sources.
 
-Compilation can be done by a simple "make"
+## Restart and output rules
 
-For running the code on the cluster please use a script. 
-For testing on your desktops/laptops the following execution command is required
+For `KKS_OpenCl`:
 
-mpirun -np num_processors ./microsim_gp name_of_infile name_of_filling_file name_of_output_files num_workers_x num_workers_y
+- physics gated on the timestep must use absolute time,
+  `restart-relative step + STARTTIME`;
+- a restart must initialize ghost cells and device-side displacement storage;
+- the rank-local binary reader restores phase, chemical potential,
+  composition, and temperature into their matching arrays;
+- rank fragments are MicroSim binary fragments and should be reconstructed or
+  converted before opening them in ParaView;
+- restart acceptance requires a field comparison against a continuous run at
+  the same physical timestep.
 
-For .h5 files, with WRITEHDF5=1, output files need to be transformed in .xml format using the following command
-just above the DATA folder that is created upon execution
+Detailed procedures and tolerances are in [docs/VALIDATION.md](docs/VALIDATION.md).
 
-./write_xdmf name_of_infile name_of_output_file total_no_workers start_time end_time
+## Keeping the fork current
 
-For ASCII files in .vtk format the consolidated output files needs to be reconstructed out of separate processor files
-that are written in the DATA folder that is created upon execution
+The recommended remote layout is:
 
-./reconstruct name_of_infile name_of_output_file number_of_workers start_time end_time
+```text
+origin    git@github.com:fysalqayyum/MicroSim.git
+upstream  https://github.com/ICME-India/MicroSim.git
+```
 
+Update a clean branch with:
 
-The code has been developed at IISc Bangalore, Department of Materials 
-Engineering by Prof. Abhik Choudhury. 
+```bash
+git fetch upstream
+git rebase upstream/main
+```
 
-The code is built on work by past PhD students 
+Resolve conflicts by preserving upstream changes first, then reapplying and
+retesting the fork-specific patch. Never assume that a conflict-free rebase
+means the solver remains scientifically equivalent.
 
-a) Sumeet Rajesh Khanna
+## Contributing
 
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Keep
+code, small inputs, scripts, and compact expected diagnostics in Git. Keep
+binaries, raw VTK/HDF5 output, job logs, licensed databases, credentials, and
+machine-specific configuration out of the repository.
 
-## Cahn–Hilliard Model
- * C code for precipitate evolution. 
- * It solves Allen-Cahn and Cahn–Hilliard equations using FFTW3. 
- * 
- * Compile the code using "make". Compilation creates "https://github.com/ICME-India/MicroSim/releases" file. 
- * Execute "./microsim_ch_fft https://github.com/ICME-India/MicroSim/releases https://github.com/ICME-India/MicroSim/releases output" 
- * 
- * Authors: Dasari Mohan and M P Gururajan
- * 
- * This is alpha version of the code and check for updates in future release. 
- * 
- * Copyright (c) 2021 Materials and Process Modelling Laboratory,
- * Department of Metallurgical Engineering and Materials Science, 
- * Indian Institute of Technology Bombay, Mumbai 400076 INDIA.
+Run the pre-publication check before pushing:
 
-## KKS GPU CUDA Model
-This module solves a multiphase, multicomponent KKS-formulation of the phase-field equations.
-The code is written using CUDA and OpenMPI, and can be employ multiple GPUs in a multi-node setting.
-It has been tested using Nvidia Tesla V100s, Nvidia Tesla P100s, and Nvidia Tesla K80s, with CUDA 11.x, 12.x and OpenMPI 4.0.x.
+```bash
+scripts/pre-publish-check.sh upstream/main
+```
 
-Follow the instructions in this module's README to get this solver up and running.
+## Attribution and license
 
-To compile the solver, simply open a terminal in the base directory of the module and run the command 'make'.
-$ make
-To compile without cuFFTMp or HDF5 support,
-$ make ENABLE_CUFFTMP=0 ENABLE_HDF5=0
+MicroSim is distributed under the
+[GNU General Public License v3.0](LICENSE). The original module authors and
+institutional contributors retain their upstream attribution. Fork-specific
+changes are modifications of that GPL-licensed work; they do not replace the
+original authorship record.
 
-For usage on the PARAM supercomputers, one can use the SLURM script (https://github.com/ICME-India/MicroSim/releases) and Makefile (Makefile_Param) that are included.
-Since the packages may differ from platform to platform, some modifications to the above may be necessary.
-
-To run the solver, use:
-$ make run INPUT=<name_of_infile> FILLING=<name_of_filling_file> OUTPUT=<name_of_output_file> NPROCS=<number_of_processors>
-or
-
- - GPU Phase-Field Developer Team @ IITH (Saurav Shenoy, Saswata Bhattacharya)
-
-The following contributors are acknowledged
-    Tushar Jogi
-    Pankaj
-    Hemanth Kumar Sandireddy
-
-
-## KKS GPU OPENCL Model
- * OpenCL code for solidification microstructure evolution 
- * 
- * Compile the code using "make". Compilation creates "https://github.com/ICME-India/MicroSim/releases" file. 
- * https://github.com/ICME-India/MicroSim/releases is used for generation of Gibbs energy and its derivatives
- * To generate Gibbs energies and execute the program
- * run "https://github.com/ICME-India/MicroSim/releases  https://github.com/ICME-India/MicroSim/releases https://github.com/ICME-India/MicroSim/releases Output"
- * It is always safe to run above command for execution of the code.
- *
- * If Gibbs energies are generated already then generating 
- * Gibbs energies can be skipped and directly execute following command.
- * Execute "./microsim_kks_opencl https://github.com/ICME-India/MicroSim/releases https://github.com/ICME-India/MicroSim/releases Output" 
- * 
- * Authors: Dasari Mohan and G Phanikumar
- * Acknowledgement to P. Gerald Tennyson for contributions towards code development at IITM
- * 
- * This is alpha version of the code and check for updates in future release. 
- * 
-
-## Grand-potential OpenFOAM
-
-An OpenFOAM phase-field solver to simulate solidification of binary and ternary alloys
-
-### solver
-
-It contains the source files of the solver.
-
-### cases
-#### dendriteAlZn
-
-It contains the OpenFOAM case files required to run the single dendrite problem for AlZn alloy.
-
-#### dendriteNiNb
-
-It contains the OpenFOAM case files required to run the single dendrite problem for NiNb alloy.
-
-#### multigrainAlZn
-
-It contains the OpenFOAM case files required to run the multigrain problem for AlZn alloy.
-
-#### coolingAlZn
-
-It contains the OpenFOAM case files required to run the cooling problem for AlZn alloy.
-
-#### multigrainNiNb
-
-It contains the OpenFOAM case files required to run the multigrain problem for NiNb alloy.
-
-#### coarseningAlZn
-
-It contains the OpenFOAM case files required to run the coarsening problem for AlZn alloy.
-
-#### dendriteNiAlMo
-
-It contains the OpenFOAM case files required to run the single dendrite problem for NiAlMo alloy.
-
-#### multigrainNiAlMo
-
-It contains the OpenFOAM case files required to run the multigrain problem for NiAlMo alloy.
-
-#### coolingNiAlMo
-
-It contains the OpenFOAM case files required to run the cooling problem for NiAlMo alloy.
-
-#### coarseningNiAlMo
-
-It contains the OpenFOAM case files required to run the coarsening problem for NiAlMo alloy.
-
-#### coolingCoarseningNiAlMo
-
-It contains the OpenFOAM case files required to run the coarsening problem while cooling for NiAlMo alloy.
-
-#### coarseningNiAlMo2Variant
-
-It contains the OpenFOAM case files required to run the coarsening problem for 3 phase NiAlMo alloy.
-
-#### coarseningNiAlMo3Variant
-
-It contains the OpenFOAM case files required to run the coarsening problem for 4 phase NiAlMo alloy.
-
-#### coarseningNiAlMoHexagonalOrthorhomic
-
-It contains the OpenFOAM case files required to run the coarsening problem for 4 phase hexagonal orthorhomic NiAlMo alloy.
-
-
-The following contributers are acknowledged
-1. Swapnil Bhure
-2. Tanmay Dutta 
-3. Ravi Kumar Singh
-4. Bhalchandra Bhadak
-
-
-## Infile Generator
-Python GUI application for generating Infile and Filling files.
-
-* This script depends on gnome-terminal. So, make sure you have it installed from the package repository of your linux distribution.
-
-* You can use a package manager like Miniconda or Anaconda to avoid issues with system python. Miniconda is enough for this specific purpose.
-
-* Install Miniconda package manager from https://github.com/ICME-India/MicroSim/releases
-
-* Now create a virtual environment with python 3.9 (version previous to this are also compatible with the packages required) and pip:
-
-> conda create --name msenv python=3.9 pip
-
-* Activate virtual environment msenv:
-
-> conda activate msenv
-
-* Install the packages below using pip (group them together to avoid dependency issue):
-
-> pip install pyqt5 scikit-image vtk tinydb sympy==1.8 pycalphad==0.9.2 pymks yt
-
-* Launch MicroSim:
-
-> python https://github.com/ICME-India/MicroSim/releases
-
-### Do you want to modify the GUI as a developer?
-
-* You can switch to some other environment like base:
-
-> conda activate base
-
-* Install pyqt to have access to QT designer:
-
-> conda install pyqt
-
-* Launch QT designer:
-
-> designer
-
-* Open https://github.com/ICME-India/MicroSim/releases
-     
-Developed by- Ajay Sagar and Tanmay Dutta
+For upstream releases, workshops, and the full project history, visit
+[ICME-India/MicroSim](https://github.com/ICME-India/MicroSim).

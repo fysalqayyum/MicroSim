@@ -209,14 +209,41 @@ dmypy.json
 cython_debug/
 
 # MicroSim solver build outputs and run artifacts
+.DS_Store
+**/.DS_Store
 Cahn_Hilliard_FFT_2D/microsim_ch_fft
 Grand_Potential_Serial/microsim_gp
 KKS_CuFFT/microsim_kks_cufft
+KKS_OpenCl/microsim_kks_opencl
+KKS_OpenCl/reconstruct
+KKS_OpenCl/archive/
 KKS_CuFFT/DATA/
 Grand_Potential_Serial/DATA/
 Cahn_Hilliard_FFT_2D/DATA/
+Grand_Potential_Serial/Input_t[0-9]*.in
+Grand_Potential_Serial/log_[0-9]*.txt
+Grand_Potential_Serial/run_[0-9]*.err
+DATA/
+Processor_[0-9]*/
+slurm-*.out
+slurm-*.err
+gpu-*.csv
+*.vtk
+*.vti
+*.pvd
+*.h5
+*.hdf5
 *.bd
 shift.dat
+
+# Local secrets, credentials, and licensed thermodynamic sources
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.tdb
+!**/examples/**/*.tdb
 
 # Claude session project memory (local working notes, not project source)
 PROJECT_MEMORY.md
