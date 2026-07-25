@@ -74,7 +74,7 @@ void Free4M(double ****Mat, long m, long n, long k) {
 }
 long file_exists(const char *fname) {
     FILE *file;
-    if (file = fopen(fname, "r"))
+    if ((file = fopen(fname, "r")) != NULL)
     {
         fclose(file);
         return 1;

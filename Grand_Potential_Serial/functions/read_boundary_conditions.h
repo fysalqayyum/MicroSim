@@ -27,7 +27,7 @@ void read_boundary_conditions(char *argv[]) {
   }
   
   while(fgets(tempbuff,1000,fr)) {
-    sscanf(tempbuff, "%100s = %100[^;];", tmpstr1, tmpstr2);
+    sscanf(tempbuff, "%99s = %99[^;];", tmpstr1, tmpstr2);
 //     printf("%s\n",  tmpstr1);
 //     printf("%s\n",  tmpstr2);
     if(tmpstr1[0] != '#') {

@@ -43,7 +43,7 @@ void fill_phase_cube(struct fill_cube fill_cube_parameters, struct fields* gridi
 void fill_phase_cylinder (struct fill_cylinder fill_cylinder_parameters, struct fields* gridinfo, long b);
 void fill_phase_sphere(struct fill_sphere fill_sphere_parameters, struct fields* gridinfo, long b);
 void fill_phase_ellipse (struct fill_ellipse fill_ellipse_parameters, struct fields* gridinfo, long b);
-void init_propertymatrices();
+void init_propertymatrices(double T);
 void q_divx (struct gradlayer *grad1, struct gradlayer *grad1_front, long a, long b, double *qab);
 void q_divy (struct gradlayer *grad1, struct gradlayer *grad1_right, long a, long b, double *qab);
 void q_dadphi (double *phi, struct gradlayer *grad1, long a,  long b , double *qab);

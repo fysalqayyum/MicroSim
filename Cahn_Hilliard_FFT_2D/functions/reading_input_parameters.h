@@ -22,7 +22,7 @@ void reading_input_parameters(char *argv[]) {
   long phase;
   
   while(fgets(tempbuff,1000,fr)) {
-    sscanf(tempbuff, "%100s = %100[^;];", tmpstr1, tmpstr2);
+    sscanf(tempbuff, "%99s = %99[^;];", tmpstr1, tmpstr2);
     
     if(tmpstr1[0] != '#') {
       if (strcmp(tmpstr1,"DIMENSION")==0) {
