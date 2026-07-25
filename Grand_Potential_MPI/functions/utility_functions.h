@@ -1222,14 +1222,9 @@ void PRINT_VOIGT_CUBIC(char* key, struct Stiffness_cubic Stiffness, FILE *fp) {
 }
 
 void PRINT_BOUNDARY_CONDITIONS(FILE *fp) {
-  char **key, var[6];
+  char key[6][64], var[6];
   
   int i, j;
-  
-  key = (char**)malloc(sizeof(char*)*6);
-  for (i = 0; i < 6; ++i) {
-    key[i] = (char*)malloc(sizeof(char)*10);
-  }
   
   for (j=0; j < 5; j++) {
     sprintf(key[0], "BOUNDARY_LEFT[%s]",   Scalars[j]);
@@ -1263,11 +1258,6 @@ void PRINT_BOUNDARY_CONDITIONS(FILE *fp) {
       }
     }
   }
-  for (i = 0; i < 6; ++i) {
-    free(key[i]);
-  }
-  free(key);
-  key = NULL;
 }
 
 

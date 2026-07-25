@@ -1,19 +1,17 @@
 FDIR=functions
 SDIR=solverloop
 TDIR=tdbs
-CC=h5pcc #-O3
-# CFLAGS=-I.
-#LDIR=$(GSL_ROOT_DIR)/lib
-#IDIR=$(GSL_ROOT_DIR)/include
+CC = h5pcc
+GSL_CONFIG = gsl-config
 
-LDIR=/share/apps/gsl/lib
-IDIR=/share/apps/gsl/include
-CFLAGS=-I $(IDIR)
+CPPFLAGS += $(shell $(GSL_CONFIG) --cflags 2>/dev/null)
+CFLAGS ?= -O2
+LDLIBS += $(shell $(GSL_CONFIG) --libs 2>/dev/null) -lm
 
 _FUNCTION_DEPS = global_vars.h functions.h matrix.h utility_functions.h functionH.h functionF_01.h functionF_02.h functionF_03.h functionF_04.h functionF_05.h  functionF_06.h functionQ.h \
                  functionF_elast.h functionW_01.h functionW_02.h function_A_00.h function_A_01.h anisotropy_01.h functionTau.h \
                  functionD.h filling.h reading_input_parameters.h reading_input_parameters_new.h dynamic_input_parameters.h read_boundary_conditions.h print_boundary_conditions.h print_input_parameters.h \
-                 initialize_variables.h free_variables.h fill_domain.h shift.h Temperature_gradient.h
+                 initialize_variables.h free_variables.h fill_domain.h shift.h Temperature_gradient.h endian_compat.h
 
 DEPS = $(patsubst %,$(FDIR)/%,$(_FUNCTION_DEPS))
 
@@ -28,15 +26,14 @@ _tdb_DEPS = Thermo.c Thermo.h
 
 DEPS += $(patsubst %,$(TDIR)/%,$(_tdb_DEPS))
 
-LIBS =-L $(LDIR) -lm -lgsl -lgslcblas
-
 all : microsim_gp
 	@echo "Making microsim_gp solver (grand-potential based phase-field model) done!"
 
 microsim_gp : microsim_gp.o
-	$(CC) -o microsim_gp microsim_gp.o $(CFLAGS) $(LIBS) -Wall
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
-microsim_gp.o : $(DEPS)
+microsim_gp.o : microsim_gp.c $(DEPS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Wall -c -o $@ $<
 
 _HEADERS_XDMF_WRITER = global_vars.h functions.h matrix.h utility_functions.h reading_input_parameters.h
 
@@ -50,7 +47,7 @@ DEPS_RECONSTRUCT = $(patsubst %,$(FDIR)/%,$(_HEADERS_RECONSTRUCT))
 # echo "Making xdmf file write for .h5 files. Required for viewing in paraview"
 
 write_xdmf : write_xdmf.o
-	$(CC) -o write_xdmf write_xdmf.o $(CFLAGS) $(LIBS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 write_xdmf.o : $(DEPS_XDMF_WRITER)
 
@@ -62,4 +59,4 @@ run: microsim_gp
 .PHONY : clean
 
 clean :
-	rm microsim_gp.o microsim_gp
+	$(RM) microsim_gp.o microsim_gp write_xdmf.o write_xdmf reconstruct.o reconstruct

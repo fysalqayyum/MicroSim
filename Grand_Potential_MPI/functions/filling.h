@@ -4,7 +4,6 @@
 #include "time.h"
 #include <gsl/gsl_rng.h>
 #include <stdlib.h>
-#include <endian.h>
 
 int checkOverlap(long centx, long centy, long centz, double rad, long shield_dist, int *occupancy) {
   long x,y,z;

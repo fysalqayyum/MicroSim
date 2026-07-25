@@ -7,7 +7,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <endian.h>
 #include <stdbool.h>
 #include <sys/stat.h>
 

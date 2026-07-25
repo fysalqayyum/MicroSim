@@ -15,18 +15,13 @@
 #include "functions/utility_functions.h"
 #include "functions/reading_input_parameters.h"
 
-#include <arpa/inet.h>
-#include <endian.h>
-#include <stdint.h>
+#include "functions/endian_compat.h"
 
-#define  IS_BIG_ENDIAN     (1 == htons(1))
+#define  IS_BIG_ENDIAN     (microsim_is_big_endian())
 #define  IS_LITTLE_ENDIAN  (!IS_BIG_ENDIAN)
 
-double swap_bytes(double value) {
-  double  src_num = value;
-  int64_t tmp_num = htobe64(le64toh(*(int64_t*)&src_num));
-  double  dst_num = *(double*)&tmp_num;
-  return dst_num;
+static inline double swap_bytes(double value) {
+  return microsim_swap_double_bytes(value);
 }
 
 void write_to_file_ascii(FILE *fp, double **buffer);

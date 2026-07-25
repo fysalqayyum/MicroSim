@@ -6,7 +6,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <endian.h>
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <gsl/gsl_errno.h>
@@ -732,6 +731,5 @@ int main(int argc, char * argv[])
 
   return 0 ;
 }
-
 
 

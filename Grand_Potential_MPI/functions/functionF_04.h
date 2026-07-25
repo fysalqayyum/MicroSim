@@ -383,8 +383,12 @@ void function_F_04_init_propertymatrices(double T) {
     acc_ES[a]     = (gsl_interp_accel***)malloc((NUMCOMPONENTS-1)*sizeof(gsl_interp_accel**));
     spline_ES[a]  = (gsl_spline***)malloc((NUMCOMPONENTS-1)*sizeof(gsl_spline**));
     for (k=0; k<NUMCOMPONENTS-1; k++) {
-      acc_ES[a][k]     = (gsl_interp_accel**)malloc((NUMCOMPONENTS-1)*sizeof(gsl_interp_accel*));
-      spline_ES[a][k]  = (gsl_spline**)malloc((NUMCOMPONENTS-1)*sizeof(gsl_spline*));
+      /*
+       * The final index stores the two equilibrium-composition branches
+       * (solid and liquid), independent of the number of components.
+       */
+      acc_ES[a][k]     = (gsl_interp_accel**)malloc(2*sizeof(gsl_interp_accel*));
+      spline_ES[a][k]  = (gsl_spline**)malloc(2*sizeof(gsl_spline*));
       for (i=0; i<2; i++) {
         acc_ES[a][k][i]    = gsl_interp_accel_alloc ();
         spline_ES[a][k][i] = gsl_spline_alloc (gsl_interp_cspline, numlines-1);
