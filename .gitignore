@@ -207,3 +207,16 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# MicroSim solver build outputs and run artifacts
+Cahn_Hilliard_FFT_2D/microsim_ch_fft
+Grand_Potential_Serial/microsim_gp
+KKS_CuFFT/microsim_kks_cufft
+KKS_CuFFT/DATA/
+Grand_Potential_Serial/DATA/
+Cahn_Hilliard_FFT_2D/DATA/
+*.bd
+shift.dat
+
+# Claude session project memory (local working notes, not project source)
+PROJECT_MEMORY.md

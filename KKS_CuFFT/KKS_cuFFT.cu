@@ -10,7 +10,13 @@
 #include <cufft.h>
 #include <cublas_v2.h>
 #include <math_constants.h>
-#include "cub/cub3/cub.cuh"
+// CUDA >=11.5 toolkits ship their own CUB; prefer it over the bundled
+// copy, which throws "more than one instance of overloaded function
+// cub::Debug" when it collides with the toolkit's CUB (see README).
+// If your toolkit predates 11.5 and lacks a system CUB, fall back to
+// one of the bundled copies instead, e.g. "cub/cub3/cub.cuh".
+#include <cub/cub.cuh>
+
 #include <unistd.h>
 
 #include <arpa/inet.h>

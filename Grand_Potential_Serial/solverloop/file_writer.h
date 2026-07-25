@@ -1,14 +1,23 @@
 #ifndef FILE_WRITER_H_
 #define FILE_WRITER_H_
 
-#include <arpa/inet.h>
-#include <endian.h>
 #include <stdint.h>
+#include <string.h>
+#include <arpa/inet.h>
 
+#ifdef __APPLE__
+#include <libkern/OSByteOrder.h>
+#define htobe64(x) OSSwapHostToBigInt64(x)
+#define le64toh(x) OSSwapLittleToHostInt64(x)
+#define IS_BIG_ENDIAN     (1 == htons(1))
+#define IS_LITTLE_ENDIAN  (!IS_BIG_ENDIAN)
+#else
+#include <endian.h>
 #define  IS_BIG_ENDIAN     (1 == htons(1))
 #define  IS_LITTLE_ENDIAN  (!IS_BIG_ENDIAN)
+#endif
 
-double swap_bytes(double value) {
+static inline double swap_bytes(double value) {
   double  src_num = value;
   int64_t tmp_num = htobe64(le64toh(*(int64_t*)&src_num));
   double  dst_num = *(double*)&tmp_num;
