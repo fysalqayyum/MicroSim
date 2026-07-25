@@ -359,6 +359,60 @@ void function_F_04_init_propertymatrices(double T) {
     }
     fclose(fp);
   }
+
+  /*
+   * Build one temperature interval common to every equilibrium-composition
+   * and Hessian spline.  KKS_OpenCl samples the GSL splines once on this
+   * interval; the device then interpolates the sampled A(T), B(T), and C(T)
+   * values at each cell's actual temperature.
+   */
+  f4_table_Tmin = T_ES[0][0];
+  f4_table_Tmax = T_ES[0][numlines-2];
+  for (a=0; a < NUM_THERMO_PHASES-1; a++) {
+    if (T_ES[a][0] > f4_table_Tmin) {
+      f4_table_Tmin = T_ES[a][0];
+    }
+    if (T_ES[a][numlines-2] < f4_table_Tmax) {
+      f4_table_Tmax = T_ES[a][numlines-2];
+    }
+  }
+  for (a=0; a < NUM_THERMO_PHASES; a++) {
+    if (T_ThF[a][0] > f4_table_Tmin) {
+      f4_table_Tmin = T_ThF[a][0];
+    }
+    if (T_ThF[a][numlines-2] < f4_table_Tmax) {
+      f4_table_Tmax = T_ThF[a][numlines-2];
+    }
+  }
+  if (!(f4_table_Tmax > f4_table_Tmin)) {
+    fprintf(stderr,
+            "Function_F=4 has no common composition/Hessian temperature interval\n");
+    exit(EXIT_FAILURE);
+  }
+  /*
+   * Anchor the uniform device table at the input reference temperature.
+   * Function_F=4 grand potentials involve cancellation of large terms, so
+   * reproducing the already-qualified reference state bit-for-bit is a
+   * stricter requirement than a small relative coefficient error.
+   */
+  {
+    const double requested_dT = 0.01;
+    const double common_Tmin = f4_table_Tmin;
+    const double common_Tmax = f4_table_Tmax;
+    long points_below =
+        (long)floor((T-common_Tmin)/requested_dT);
+    long points_above =
+        (long)floor((common_Tmax-T)/requested_dT);
+    if (points_below < 1 || points_above < 1) {
+      fprintf(stderr,
+              "Reference temperature must be inside the Function_F=4 table interval\n");
+      exit(EXIT_FAILURE);
+    }
+    f4_table_dT = requested_dT;
+    f4_table_Tmin = T-points_below*f4_table_dT;
+    f4_table_Tmax = T+points_above*f4_table_dT;
+    f4_table_count = points_below+points_above+1;
+  }
   
   
   acc_ES     = (gsl_interp_accel****)malloc((NUM_THERMO_PHASES-1)*sizeof(gsl_interp_accel***));

@@ -3,7 +3,7 @@
 
 #include "global_vars.h"
 
-double function_F_03_ComputeSlopes(double T, long a);
+void function_F_03_ComputeSlopes(double T, long a);
 
 double function_F_03_free_energy(double *c, double T, long a) {
   long i,j;
@@ -113,7 +113,7 @@ void function_F_03_function_A(double T, double ***c) {
   FreeM(dmudc_matrix, NUMCOMPONENTS-1);
 }
 
-double function_F_03_ComputeSlopes(double T, long a) {
+void function_F_03_ComputeSlopes(double T, long a) {
 //   printf("I am coming to compute slopes\n");
   double dmudc[(NUMCOMPONENTS-1)*(NUMCOMPONENTS-1)];
   long k,l,index;

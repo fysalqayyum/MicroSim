@@ -1,18 +1,38 @@
 #ifndef FILE_WRITER_H_
 #define FILE_WRITER_H_
 
-#include <arpa/inet.h>
-#include <endian.h>
 #include <stdint.h>
+#include <string.h>
 
-#define  IS_BIG_ENDIAN     (1 == htons(1))
-#define  IS_LITTLE_ENDIAN  (!IS_BIG_ENDIAN)
+static inline int microsim_is_big_endian(void) {
+  const uint16_t marker = UINT16_C(0x0102);
+  unsigned char bytes[sizeof(marker)];
 
-double swap_bytes(double value) {
-  double  src_num = value;
-  int64_t tmp_num = htobe64(le64toh(*(int64_t*)&src_num));
-  double  dst_num = *(double*)&tmp_num;
-  return dst_num;
+  memcpy(bytes, &marker, sizeof(marker));
+  return bytes[0] == UINT8_C(0x01);
+}
+
+#define IS_BIG_ENDIAN (microsim_is_big_endian())
+#define IS_LITTLE_ENDIAN (!IS_BIG_ENDIAN)
+
+static inline double swap_bytes(double value) {
+  uint64_t bits;
+
+  memcpy(&bits, &value, sizeof(bits));
+#if defined(__clang__) || defined(__GNUC__)
+  bits = __builtin_bswap64(bits);
+#else
+  bits = ((bits & UINT64_C(0x00000000000000ff)) << 56) |
+         ((bits & UINT64_C(0x000000000000ff00)) << 40) |
+         ((bits & UINT64_C(0x0000000000ff0000)) << 24) |
+         ((bits & UINT64_C(0x00000000ff000000)) << 8)  |
+         ((bits & UINT64_C(0x000000ff00000000)) >> 8)  |
+         ((bits & UINT64_C(0x0000ff0000000000)) >> 24) |
+         ((bits & UINT64_C(0x00ff000000000000)) >> 40) |
+         ((bits & UINT64_C(0xff00000000000000)) >> 56);
+#endif
+  memcpy(&value, &bits, sizeof(value));
+  return value;
 }
 
 void writetofile_serial2D(struct fields* gridinfo, char *argv[], long t);
@@ -93,6 +113,10 @@ void readfromfile_serialmpi_binary(struct fields* gridinfo, char *argv[], long t
   long b, k;
   sprintf(name,"DATA/Processor_%d/%s_%ld.vtk",rank, argv[3], t);
   fp=fopen(name,"rb");
+  if (fp == NULL) {
+    fprintf(stderr, "Could not open binary restart file: %s\n", name);
+    exit(EXIT_FAILURE);
+  }
   read_cells_vtk_mpi_binary(fp, gridinfo);
   fclose(fp);
 }
@@ -227,7 +251,7 @@ void write_cells_vtk_2D_binary(FILE *fp, struct fields *gridinfo) {
         for (y=start[Y]; y <= end[Y]; y++) {
           index = x*layer_size + z*rows_y + y;
           if (IS_LITTLE_ENDIAN) {
-            value = swap_bytes(gridinfo[index].compi[k]);
+            value = swap_bytes(gridinfo[index].composition[k]);
           } else {
             value = gridinfo[index].composition[k];
           }
@@ -516,7 +540,10 @@ void read_cells_vtk_mpi_binary(FILE *fp, struct fields *gridinfo) {
       for (z=1; z < mpiparam.rows_z-1; z++) {
         for (y=1; y < mpiparam.rows_y-1; y++) {
           index        = y + mpiparam.rows_y * ( z + mpiparam.rows_z * x);
-          fread(&value, sizeof(double), 1, fp);
+          if (fread(&value, sizeof(double), 1, fp) != 1) {
+            fprintf(stderr, "Failed to read binary phase field %ld\n", a);
+            exit(EXIT_FAILURE);
+          }
           if (IS_LITTLE_ENDIAN) {
             gridinfo[index].phia[a] = swap_bytes(value);
           } else {
@@ -525,23 +552,32 @@ void read_cells_vtk_mpi_binary(FILE *fp, struct fields *gridinfo) {
         }
       }
     }
-    fprintf(fp,"\n");
+    if (fgetc(fp) != '\n') {
+      fprintf(stderr, "Missing binary separator after phase field %ld\n", a);
+      exit(EXIT_FAILURE);
+    }
   }
   for (k=0; k < NUMCOMPONENTS-1; k++) {
     for (x=1; x < mpiparam.rows_x-1; x++) {
       for (z=1; z < mpiparam.rows_z-1; z++) {
         for (y=1; y < mpiparam.rows_y-1; y++) {
           index        = y + mpiparam.rows_y * ( z + mpiparam.rows_z * x);
-          fread(&value, sizeof(double), 1, fp);
+          if (fread(&value, sizeof(double), 1, fp) != 1) {
+            fprintf(stderr, "Failed to read binary chemical potential %ld\n", k);
+            exit(EXIT_FAILURE);
+          }
           if (IS_LITTLE_ENDIAN) {
-            gridinfo[index].composition[k] = swap_bytes(value);
+            gridinfo[index].compi[k] = swap_bytes(value);
           } else {
-            gridinfo[index].composition[k] = value;
+            gridinfo[index].compi[k] = value;
           }
         }
       }
     }
-    fprintf(fp,"\n");
+    if (fgetc(fp) != '\n') {
+      fprintf(stderr, "Missing binary separator after chemical potential %ld\n", k);
+      exit(EXIT_FAILURE);
+    }
   }
 //   if(WRITECOMPOSITION) {
     for (k=0; k < NUMCOMPONENTS-1; k++) {
@@ -549,16 +585,22 @@ void read_cells_vtk_mpi_binary(FILE *fp, struct fields *gridinfo) {
         for (z=1; z < mpiparam.rows_z-1; z++) {
           for (y=1; y < mpiparam.rows_y-1; y++) {
             index        = y + mpiparam.rows_y * ( z + mpiparam.rows_z * x);
-          if (IS_LITTLE_ENDIAN) {
-            value = swap_bytes(gridinfo[index].compi[k]);
-          } else {
-            value = gridinfo[index].composition[k];
-          }
-          fwrite(&value, sizeof(double), 1, fp);
+            if (fread(&value, sizeof(double), 1, fp) != 1) {
+              fprintf(stderr, "Failed to read binary composition %ld\n", k);
+              exit(EXIT_FAILURE);
+            }
+            if (IS_LITTLE_ENDIAN) {
+              gridinfo[index].composition[k] = swap_bytes(value);
+            } else {
+              gridinfo[index].composition[k] = value;
+            }
           }
         }
       }
-      fprintf(fp,"\n");
+      if (fgetc(fp) != '\n') {
+        fprintf(stderr, "Missing binary separator after composition %ld\n", k);
+        exit(EXIT_FAILURE);
+      }
     }
 //   }
   if (ELASTICITY) {
@@ -568,17 +610,23 @@ void read_cells_vtk_mpi_binary(FILE *fp, struct fields *gridinfo) {
           for (y=1; y < mpiparam.rows_y-1; y++) {
             index        = y + mpiparam.rows_y * ( z + mpiparam.rows_z * x);
 
-          fread(&value, sizeof(double), 1, fp);
-          if (IS_LITTLE_ENDIAN) {
-            iter_gridinfom[index].disp[dim][2] = swap_bytes(value);
-          } else {
-            iter_gridinfom[index].disp[dim][2] = value;
-          }
+            if (fread(&value, sizeof(double), 1, fp) != 1) {
+              fprintf(stderr, "Failed to read binary displacement %ld\n", dim);
+              exit(EXIT_FAILURE);
+            }
+            if (IS_LITTLE_ENDIAN) {
+              iter_gridinfom[index].disp[dim][2] = swap_bytes(value);
+            } else {
+              iter_gridinfom[index].disp[dim][2] = value;
+            }
 
           }
         }
       }
-      fprintf(fp,"\n");
+      if (fgetc(fp) != '\n') {
+        fprintf(stderr, "Missing binary separator after displacement %ld\n", dim);
+        exit(EXIT_FAILURE);
+      }
     }
   }
 
@@ -587,7 +635,10 @@ void read_cells_vtk_mpi_binary(FILE *fp, struct fields *gridinfo) {
       for (z=1; z < mpiparam.rows_z-1; z++) {
         for (y=1; y < mpiparam.rows_y-1; y++) {
           index        = y + mpiparam.rows_y * ( z + mpiparam.rows_z * x);
-          fread(&value, sizeof(double), 1, fp);
+          if (fread(&value, sizeof(double), 1, fp) != 1) {
+            fprintf(stderr, "Failed to read binary temperature\n");
+            exit(EXIT_FAILURE);
+          }
           if (IS_LITTLE_ENDIAN) {
             gridinfo[index].temperature = swap_bytes(value);
           } else {
@@ -618,20 +669,20 @@ void populate_table_names(){
   i=0;
   for (a = 0; a < NUMPHASES; a++) {
     sprintf(phase_name, "/%s",Phases[a]);
-    coordNames[i] = (char*)malloc(sizeof(char)*strlen(phase_name));
+    coordNames[i] = (char*)malloc(sizeof(char)*(strlen(phase_name)+1));
     strcpy(coordNames[i], phase_name);
     i++;
   }
   for (k=0; k < NUMCOMPONENTS-1; k++) {
     sprintf(chempot_name, "/Mu_%s",Components[k]);
-    coordNames[i] = (char*)malloc(sizeof(char)*strlen(chempot_name));
+    coordNames[i] = (char*)malloc(sizeof(char)*(strlen(chempot_name)+1));
     strcpy(coordNames[i], chempot_name);
     i++;
   }
 //   if (WRITECOMPOSITION) {
     for (k=0; k < NUMCOMPONENTS-1; k++) {
       sprintf(composition_name, "/Composition_%s",Components[k]);
-      coordNames[i] = (char*)malloc(sizeof(char)*strlen(composition_name));
+      coordNames[i] = (char*)malloc(sizeof(char)*(strlen(composition_name)+1));
       strcpy(coordNames[i], composition_name);
       i++;
     }
@@ -765,6 +816,10 @@ void writetofile_mpi_binary(struct fields* gridinfo, char *argv[], long t) {
   long b, k;
   sprintf(name,"DATA/Processor_%d/%s_%ld.vtk",rank, argv[3], t);
   fp=fopen(name,"wb");
+  if (fp == NULL) {
+    fprintf(stderr, "Could not open binary output file: %s\n", name);
+    exit(EXIT_FAILURE);
+  }
   write_cells_vtk_mpi_binary(fp, gridinfo);
   fclose(fp);
 
@@ -822,7 +877,7 @@ void write_cells_vtk_mpi_binary(FILE *fp, struct fields* gridinfo) {
           for (y=1; y < mpiparam.rows_y-1; y++) {
             index        = y + mpiparam.rows_y * ( z + mpiparam.rows_z * x);
           if (IS_LITTLE_ENDIAN) {
-            value = swap_bytes(gridinfo[index].compi[k]);
+            value = swap_bytes(gridinfo[index].composition[k]);
           } else {
             value = gridinfo[index].composition[k];
           }

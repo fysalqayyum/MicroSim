@@ -76,12 +76,15 @@ void CL_buffer_allocation() {
     printf("falied to allocate device memory d_propf4 %d\n", ret);
     exit(1);
   }
-  d_propf4spline = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, nx*sizeof(struct propmatf4spline), propf4spline, &ret);
+  size_t f4_table_bytes =
+      (FUNCTION_F == 4 && !ISOTHERMAL ? f4_table_count : 2)
+      *sizeof(struct propmatf4spline);
+  d_propf4spline = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, f4_table_bytes, propf4spline, &ret);
   if ( !d_propf4spline ) {
     printf("falied to allocate device memory d_propf4spline %d\n", ret);
     exit(1);
   }
-  d_propf4spline1 = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, nx*sizeof(struct propmatf4spline), propf4spline1, &ret);
+  d_propf4spline1 = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, f4_table_bytes, propf4spline1, &ret);
   if ( !d_propf4spline1 ) {
     printf("falied to allocate device memory d_propf4spline1 %d\n", ret);
     exit(1);
@@ -134,12 +137,12 @@ void CL_buffer_allocation() {
     printf("enq buffer write error d_propf4 %d\n", ret);
     exit(1);
   }
-  ret  = clEnqueueWriteBuffer(cmdQ, d_propf4spline, CL_TRUE, 0, nx*sizeof(struct propmatf4spline), propf4spline, 0, NULL, NULL);
+  ret  = clEnqueueWriteBuffer(cmdQ, d_propf4spline, CL_TRUE, 0, f4_table_bytes, propf4spline, 0, NULL, NULL);
   if (ret!=CL_SUCCESS) {
     printf("enq buffer write error d_propf4spline %d\n", ret);
     exit(1);
   }
-  ret  = clEnqueueWriteBuffer(cmdQ, d_propf4spline1, CL_TRUE, 0, nx*sizeof(struct propmatf4spline), propf4spline1, 0, NULL, NULL);
+  ret  = clEnqueueWriteBuffer(cmdQ, d_propf4spline1, CL_TRUE, 0, f4_table_bytes, propf4spline1, 0, NULL, NULL);
   if (ret!=CL_SUCCESS) {
     printf("enq buffer write error d_propf4spline1 %d\n", ret);
     exit(1);

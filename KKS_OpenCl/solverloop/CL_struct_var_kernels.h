@@ -57,6 +57,8 @@ struct pfmval {
   double TPosOffset;
   double TGRADIENT;
   double velocity;
+  double f4_table_Tmin;
+  double f4_table_dT;
   double NoiseFac;
   double interfaceUplimit;
   double interfaceDownlimit;
@@ -64,6 +66,7 @@ struct pfmval {
   double rho;
   double damping_factor;
   long shift_OFFSET;
+  long f4_table_count;
   int thermophase[npha];
   int   nproc;
   int   Nx;
@@ -134,4 +137,3 @@ struct Stiffness_cubic {
 struct iter_variables {
  double disp[3][3];
 };
-

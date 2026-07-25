@@ -2,7 +2,12 @@ void CL_Solve_phi_com_Function_F_4() {
   
   //printf("In CL_Solve_phi_com_Function_F_4\n");
   
-  tstep[0] = t;
+  /*
+   * Smoothing, anti-trapping, and anisotropy gates depend on physical time.
+   * Use the absolute step so a continuation does not repeat the initial
+   * smoothing regime. STARTTIME is zero for a fresh run.
+   */
+  tstep[0] = t + STARTTIME;
   ret  = clEnqueueWriteBuffer(cmdQ, d_tstep, CL_TRUE, 0, sizeof(long), tstep, 0, NULL, NULL);
   if (ret!=CL_SUCCESS) {
     printf("enq buffer write error d_tstep %d\n", ret);

@@ -74,7 +74,7 @@ void Free4M(double ****Mat, long m, long n, long k) {
 }
 long file_exists(const char *fname) {
     FILE *file;
-    if (file = fopen(fname, "r"))
+    if ((file = fopen(fname, "r")) != NULL)
     {
         fclose(file);
         return 1;
@@ -257,38 +257,46 @@ void populate_A_matrix(double ***Mat, char *tmpstr, long NUMCOMPONENTS) {
 }
 
 void populate_thermodynamic_matrix(double ***Mat, char *tmpstr, long NUMCOMPONENTS) {
-  char **tmp;
-  char *str1, *str2, *token;
-  char *saveptr1, *saveptr2;
-  
-  int i,j,k,l;
-  long len = (NUMCOMPONENTS-1) + 2;
+  char *cursor, *endptr;
+  int i;
   long phase1, phase2;
-  
-  tmp = (char**)malloc(sizeof(char*)*len);
-  for (i = 0; i < len; ++i) {
-    tmp[i] = (char*)malloc(sizeof(char)*10);
+
+  cursor = tmpstr + strspn(tmpstr, " \t{");
+  phase1 = strtol(cursor, &endptr, 10);
+  if (endptr == cursor || *endptr != ',') {
+    fprintf(stderr, "Malformed thermodynamic matrix entry '%s': phase 1\n",
+            tmpstr);
+    exit(EXIT_FAILURE);
   }
-  for (i = 0, str1 = tmpstr; ; i++, str1 = NULL) {
-    token = strtok_r(str1, "{,}", &saveptr1);
-    if (token == NULL)
-        break;
-    strcpy(tmp[i],token);
+  cursor = endptr + 1;
+
+  phase2 = strtol(cursor, &endptr, 10);
+  if (endptr == cursor) {
+    fprintf(stderr, "Malformed thermodynamic matrix entry '%s': phase 2\n",
+            tmpstr);
+    exit(EXIT_FAILURE);
   }
-  phase1 = atoi(tmp[0]);
-  phase2 = atoi(tmp[1]);
-  
-  l=1;
+  cursor = endptr;
+
   for (i=0; i < NUMCOMPONENTS-1; i++) {
-   Mat[phase1][phase2][i] = atof(tmp[l+1]);
-   l++;
+    if (*cursor != ',') {
+      fprintf(stderr,
+              "Malformed thermodynamic matrix entry '%s' for phases %ld,%ld: "
+              "missing component %d\n",
+              tmpstr, phase1, phase2, i);
+      exit(EXIT_FAILURE);
+    }
+    cursor++;
+    Mat[phase1][phase2][i] = strtod(cursor, &endptr);
+    if (endptr == cursor) {
+      fprintf(stderr,
+              "Malformed thermodynamic matrix entry '%s' for phases %ld,%ld: "
+              "invalid component %d\n",
+              tmpstr, phase1, phase2, i);
+      exit(EXIT_FAILURE);
+    }
+    cursor = endptr;
   }
-  
-  for (i = 0; i < len; ++i) {
-    free(tmp[i]);
-  }
-  free(tmp);
-  tmp = NULL;
 }
 void populate_symmetric_tensor(struct symmetric_tensor *Mat, char *tmpstr, long NUMPHASES) {
   char **tmp;

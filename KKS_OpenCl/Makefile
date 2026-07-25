@@ -1,11 +1,20 @@
 FDIR=functions
 SDIR=solverloop
 TDIR=tdbs
+
+# Site configuration. All values may be overridden on the make command line.
+# Example:
+#   make microsim_kks_opencl CC=/opt/mpi/bin/mpicc \
+#        GSL_ROOT=/opt/gsl CUDA_ROOT=/usr/local/cuda
+GSL_ROOT ?= $(HOME)/gsl_2_7
+CUDA_ROOT ?= /usr/local/cuda
+HDF5_INCLUDE ?= /usr/include/hdf5/openmpi
+
 CC=mpicc
 HC=h5pcc
-CFLAGS=-I. -I$(HOME)/gsl_2_7/include/ -I/usr/local/cuda/include/ -I/usr/include/hdf5/openmpi/
+CFLAGS=-I. -I$(GSL_ROOT)/include -I$(CUDA_ROOT)/include -I$(HDF5_INCLUDE)
 
-LDIR =-L/usr/local/cuda/lib64/  -L$(HOME)/gsl_2_7/lib/
+LDIR=-L$(CUDA_ROOT)/lib64 -L$(GSL_ROOT)/lib
 
 _FUNCTION_DEPS = global_vars.h CL_global_vars.h CL_initialize_variables.h      \
                  CL_device_kernel_build.h CL_buffer_allocation.h CL_create_kernel_args.h  \
@@ -28,12 +37,13 @@ _tdb_DEPS = Thermo.c Thermo.h
 
 DEPS += $(patsubst %,$(TDIR)/%,$(_tdb_DEPS))
 
-LIBS =-lm -lgsl -lgslcblas -lOpenCL   
+LIBS=-lm -lgsl -lgslcblas -lOpenCL
+WARNFLAGS ?= -Wall -Wextra
 
 all : microsim_kks_opencl reconstruct
 
 microsim_kks_opencl : microsim_kks_opencl.o
-	$(CC)  -g -o microsim_kks_opencl microsim_kks_opencl.o $(CFLAGS)  $(IDIR) $(LDIR) $(LIBS) -Wall -fcheck=all -fbacktrace
+	$(CC) -g -o microsim_kks_opencl microsim_kks_opencl.o $(CFLAGS) $(IDIR) $(LDIR) $(LIBS) $(WARNFLAGS)
 
 microsim_kks_opencl.o : $(DEPS)
 
@@ -55,5 +65,4 @@ reconstruct.o : $(DEPS_RECONSTRUCT)
 .PHONY : clean
 
 clean :
-
 	rm -f microsim_kks_opencl.o microsim_kks_opencl reconstruct *.out *.o  *.dat *.gz *.vtk *.txt *.mv *.log *.err *.epsc *.eps *.mat  *.png *.op *.jpg *.jpeg *.csl *.bd   *.bd *.out

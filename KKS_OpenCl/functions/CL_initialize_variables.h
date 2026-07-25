@@ -240,8 +240,26 @@ void CL_initialize_variables() {
   cscl     = (struct csle*)malloc(nxnynz*sizeof(struct csle));
   //temp     = (double*)malloc(nx*sizeof(double)); //Changed to nx, According to MESH_Y****
   tstep    = (long*)malloc(sizeof(long));
-  propf4spline     = (struct propmatf4spline*)malloc(ny*sizeof(struct propmatf4spline));
-  propf4spline1     = (struct propmatf4spline*)malloc(ny*sizeof(struct propmatf4spline));
+  if (FUNCTION_F == 4 && !ISOTHERMAL) {
+    if (f4_table_count < 2) {
+      fprintf(stderr, "Invalid Function_F=4 lookup-table size: %ld\n",
+              f4_table_count);
+      exit(1);
+    }
+    propf4spline = (struct propmatf4spline*)malloc(
+        f4_table_count*sizeof(struct propmatf4spline));
+    propf4spline1 = (struct propmatf4spline*)malloc(
+        f4_table_count*sizeof(struct propmatf4spline));
+  } else {
+    propf4spline =
+        (struct propmatf4spline*)calloc(2, sizeof(struct propmatf4spline));
+    propf4spline1 =
+        (struct propmatf4spline*)calloc(2, sizeof(struct propmatf4spline));
+  }
+  if (propf4spline == NULL || propf4spline1 == NULL) {
+    fprintf(stderr, "Failed to allocate Function_F=4 lookup tables\n");
+    exit(1);
+  }
 
   pfmdat.myrank = rank;
 

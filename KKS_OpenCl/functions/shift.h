@@ -1,6 +1,79 @@
 #ifndef APPLY_SHIFTY_H
 #define APPLY_SHIFTY_H
 
+long check_SHIFT_local(struct fields* local_grid) {
+  long x, y, z, center;
+  long interface_position = 0;
+
+  for (x = 1; x < mpiparam.rows_x-1; x++) {
+    for (z = 1; z < mpiparam.rows_z-1; z++) {
+      for (y = 2; y < mpiparam.rows_y-1; y++) {
+        center = y + mpiparam.rows_y*(z + mpiparam.rows_z*x);
+        if ((local_grid[center-1].phia[NUMPHASES-1] < 0.5) &&
+            (local_grid[center].phia[NUMPHASES-1] >= 0.5) &&
+            ((y-1) > interface_position)) {
+          interface_position = y-1;
+        }
+      }
+    }
+  }
+  return interface_position;
+}
+
+void apply_shiftY_local(struct fields* local_grid, struct csle* local_cscl,
+                        long shift_cells, long new_shift_offset,
+                        long absolute_timestep) {
+  long x, y, z, src, dst, ip, is;
+  double c[NUMCOMPONENTS-1];
+  double local_temperature;
+  double imposed_gradient =
+      temperature_gradientY.DeltaT/temperature_gradientY.Distance;
+
+  if (shift_cells <= 0 || shift_cells >= mpiparam.rows_y-2) {
+    return;
+  }
+
+  for (x = 0; x < mpiparam.rows_x; x++) {
+    for (z = 0; z < mpiparam.rows_z; z++) {
+      for (y = 0; y < mpiparam.rows_y-shift_cells; y++) {
+        dst = y + mpiparam.rows_y*(z + mpiparam.rows_z*x);
+        src = (y + shift_cells)
+              + mpiparam.rows_y*(z + mpiparam.rows_z*x);
+        local_grid[dst] = local_grid[src];
+        local_cscl[dst] = local_cscl[src];
+      }
+
+      for (y = mpiparam.rows_y-shift_cells;
+           y < mpiparam.rows_y; y++) {
+        dst = y + mpiparam.rows_y*(z + mpiparam.rows_z*x);
+        local_temperature =
+            temperature_gradientY.base_temp
+            + imposed_gradient
+                * (((y-1) + new_shift_offset)*deltay
+                   - temperature_gradientY.velocity
+                         * absolute_timestep*deltat);
+
+        for (ip = 0; ip < NUMPHASES-1; ip++) {
+          local_grid[dst].phia[ip] = 0.0;
+        }
+        local_grid[dst].phia[NUMPHASES-1] = 1.0;
+        for (is = 0; is < NUMCOMPONENTS-1; is++) {
+          c[is] = cfill[NUMPHASES-1][NUMPHASES-1][is];
+          local_grid[dst].composition[is] = c[is];
+        }
+        Mu(c, local_temperature, NUMPHASES-1, local_grid[dst].compi);
+        local_grid[dst].temperature = local_temperature;
+
+        for (ip = 0; ip < NUMPHASES; ip++) {
+          for (is = 0; is < NUMCOMPONENTS-1; is++) {
+            local_cscl[dst].comie[ip][is] = ceq[ip][ip][is];
+          }
+        }
+      }
+    }
+  }
+}
+
 void apply_shiftY(struct fields* gridinfo, long INTERFACE_POS_GLOBAL) {
   //Shift by one cell in the negative y-direction
   long x, y, z;

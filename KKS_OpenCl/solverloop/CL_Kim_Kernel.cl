@@ -15,6 +15,112 @@
 #include "solverloop/functionA_01_CL.h"
 #include "solverloop/functionF_03_CL.h" 
 
+#ifndef F4_RUNTIME_EQ
+#define F4_RUNTIME_EQ 1
+#endif
+#ifndef F4_RUNTIME_PHASE
+#define F4_RUNTIME_PHASE 1
+#endif
+#ifndef F4_RUNTIME_PHASE_ENERGY
+#define F4_RUNTIME_PHASE_ENERGY F4_RUNTIME_PHASE
+#endif
+#ifndef F4_RUNTIME_PHASE_KINETICS
+#define F4_RUNTIME_PHASE_KINETICS F4_RUNTIME_PHASE
+#endif
+#ifndef F4_RUNTIME_TRANSPORT
+#define F4_RUNTIME_TRANSPORT 1
+#endif
+
+static inline void f4_table_position(double temperature,
+                              __constant struct pfmval *pfmdat,
+                              int *lower, double *weight) {
+  double coordinate;
+  int index;
+
+  if (temperature <= pfmdat->f4_table_Tmin) {
+    *lower = 0;
+    *weight = 0.0;
+    return;
+  }
+  coordinate =
+      (temperature - pfmdat->f4_table_Tmin)/pfmdat->f4_table_dT;
+  index = (int)floor(coordinate);
+  if (index >= pfmdat->f4_table_count-1) {
+    *lower = (int)pfmdat->f4_table_count-2;
+    *weight = 1.0;
+    return;
+  }
+  *lower = index;
+  *weight = coordinate-index;
+}
+
+static inline double f4_cubic4(double p0, double p1, double p2, double p3,
+                        double coordinate) {
+  return -p0*(coordinate-1.0)*(coordinate-2.0)*(coordinate-3.0)/6.0
+         +p1*coordinate*(coordinate-2.0)*(coordinate-3.0)/2.0
+         -p2*coordinate*(coordinate-1.0)*(coordinate-3.0)/2.0
+         +p3*coordinate*(coordinate-1.0)*(coordinate-2.0)/6.0;
+}
+
+static inline double f4_table_A(__global const struct propmatf4spline *table,
+                         __constant struct pfmval *pfmdat,
+                         double temperature, int phase,
+                         int component1, int component2) {
+  int lower;
+  int start;
+  double weight;
+  f4_table_position(temperature, pfmdat, &lower, &weight);
+  start = lower-1;
+  if (start < 0) start = 0;
+  if (start > pfmdat->f4_table_count-4) {
+    start = (int)pfmdat->f4_table_count-4;
+  }
+  return f4_cubic4(
+      table[start].A[phase][component1][component2],
+      table[start+1].A[phase][component1][component2],
+      table[start+2].A[phase][component1][component2],
+      table[start+3].A[phase][component1][component2],
+      (double)(lower-start)+weight);
+}
+
+static inline double f4_table_B(__global const struct propmatf4spline *table,
+                         __constant struct pfmval *pfmdat,
+                         double temperature, int phase, int component) {
+  int lower;
+  int start;
+  double weight;
+  f4_table_position(temperature, pfmdat, &lower, &weight);
+  start = lower-1;
+  if (start < 0) start = 0;
+  if (start > pfmdat->f4_table_count-4) {
+    start = (int)pfmdat->f4_table_count-4;
+  }
+  return f4_cubic4(table[start].B[phase][component],
+                   table[start+1].B[phase][component],
+                   table[start+2].B[phase][component],
+                   table[start+3].B[phase][component],
+                   (double)(lower-start)+weight);
+}
+
+static inline double f4_table_C(__global const struct propmatf4spline *table,
+                         __constant struct pfmval *pfmdat,
+                         double temperature, int phase) {
+  int lower;
+  int start;
+  double weight;
+  f4_table_position(temperature, pfmdat, &lower, &weight);
+  start = lower-1;
+  if (start < 0) start = 0;
+  if (start > pfmdat->f4_table_count-4) {
+    start = (int)pfmdat->f4_table_count-4;
+  }
+  return f4_cubic4(table[start].C[phase],
+                   table[start+1].C[phase],
+                   table[start+2].C[phase],
+                   table[start+3].C[phase],
+                   (double)(lower-start)+weight);
+}
+
 
 __kernel void SolverCsClEq_F2(__global struct fields *gridinfoO, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep) {
 
@@ -163,7 +269,7 @@ __kernel void SolverCsClEq_F3(__global struct fields *gridinfoO, __global struct
  
 }
 
-__kernel void SolverCsClEq_F4(__global struct fields *gridinfoO, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep, __constant struct propmatf4 *propf4, __constant struct propmatf4spline *propf4spline) {
+__kernel void SolverCsClEq_F4(__global struct fields *gridinfoO, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep, __constant struct propmatf4 *propf4, __global const struct propmatf4spline *propf4spline) {
 
     int x, y, z;
     int nx, ny, nz;
@@ -186,7 +292,7 @@ __kernel void SolverCsClEq_F4(__global struct fields *gridinfoO, __global struct
 
     index = y + ny*(z + x*nz);
 
-    Ti = pfmdat->T0;
+    Ti = gridinfoO[index].temperature;
 
     interface = 1;
     bulkphase = 0;
@@ -202,8 +308,7 @@ __kernel void SolverCsClEq_F4(__global struct fields *gridinfoO, __global struct
 
       for ( ip = 0; ip < npha; ip++ ) {
 
-        // if ( pfmdat->ISOTHERMAL ) {
-
+        if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_EQ ) {
           for ( is1 = 0; is1 < nsol; is1++ ) {
             tmp0 = 0.0;
             for ( is2 = 0; is2 < nsol; is2++ ) {
@@ -211,30 +316,27 @@ __kernel void SolverCsClEq_F4(__global struct fields *gridinfoO, __global struct
             }
             ci[is1] = tmp0;
           }
-
-        // }
-        // else {
-        //   for ( is = 0; is < nsol; is++ ) {
-        //     for ( js = 0; js < nsol; js++ ) {
-        //       if ( is == js ) {
-        //         muc[is*nsol+js] = 2.0 * propf4spline[j].A[ip][is][js];
-        //       }
-        //       else {
-        //         muc[is*nsol+js] = propf4spline[j].A[ip][is][js];
-        //       }
-        //     }
-        //   }
-        //
-        //   matinvnew_nsol(muc, cmu);
-        //
-        //   for ( is1 = 0; is1 < nsol; is1++ ) {
-        //     tmp0 = 0.0;
-        //     for ( is2 = 0; is2 < nsol; is2++ ) {
-        //       tmp0 += cmu[is1*nsol+is2] * ( gridinfoO[index].mu[is2] - propf4spline[j].B[ip][is2] );
-        //     }
-        //     ci[is1] = tmp0;
-        //   }
-        // }
+        }
+        else {
+          Ti = gridinfoO[index].temperature;
+          for ( is = 0; is < nsol; is++ ) {
+            for ( js = 0; js < nsol; js++ ) {
+              muc[is*nsol+js] =
+                  (is == js ? 2.0 : 1.0)
+                  * f4_table_A(propf4spline, pfmdat, Ti, ip, is, js);
+            }
+          }
+          matinvnew_nsol(muc, cmu);
+          for ( is1 = 0; is1 < nsol; is1++ ) {
+            tmp0 = 0.0;
+            for ( is2 = 0; is2 < nsol; is2++ ) {
+              tmp0 += cmu[is1*nsol+is2]
+                  * (gridinfoO[index].mu[is2]
+                     - f4_table_B(propf4spline, pfmdat, Ti, ip, is2));
+            }
+            ci[is1] = tmp0;
+          }
+        }
 
         for ( is = 0; is < nsol; is++ ) {
           cscl[index].comie[ip][is] = ci[is];
@@ -1642,7 +1744,7 @@ __kernel void SolverPhi_F3(__global struct fields *gridinfoO, __global struct fi
 
 }
 
-__kernel void SolverPhi_F4_smooth(__global struct fields *gridinfoO, __global struct fields *gridinfo, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep, __constant struct propmatf4 *propf4, __constant struct propmatf4spline *propf4spline) {
+__kernel void SolverPhi_F4_smooth(__global struct fields *gridinfoO, __global struct fields *gridinfo, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep, __constant struct propmatf4 *propf4, __global const struct propmatf4spline *propf4spline) {
 
 
   int x, y, z, ii, i1, j1, k1, i2;
@@ -1754,7 +1856,7 @@ __kernel void SolverPhi_F4_smooth(__global struct fields *gridinfoO, __global st
       }
     }
 
-    // if ( pfmdat->ISOTHERMAL ) {
+    if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_PHASE_ENERGY ) {
       for ( ip = 0; ip < npha; ip ++ ) {
         tmp0 = 0.0;
         tmp1 = 0.0;
@@ -1768,22 +1870,27 @@ __kernel void SolverPhi_F4_smooth(__global struct fields *gridinfoO, __global st
         }
         ge[ip] = ( tmp0 + tmp1 + propf4->C[ip] ) / pfmdat->Vm;
       }
-    // }
-    // else {
-    //   for ( ip = 0; ip < npha; ip ++ ) {
-    //     tmp0 = 0.0;
-    //     tmp1 = 0.0;
-    //     for ( is1 = 0; is1 < nsol; is1++ ) {
-    //       for ( is2 = 0; is2 < nsol; is2++ ) {
-    //         if ( is1 <= is2 ) {
-    //           tmp0 += propf4spline[i].A[ip][is1][is2]*cie[ip][is1]*cie[ip][is2];
-    //         }
-    //       }
-    //       tmp1 += propf4spline[i].B[ip][is1]*cie[ip][is1];
-    //     }
-    //     ge[ip] = ( tmp0 + tmp1 + propf4spline[i].C[ip] ) / pfmdat->Vm;
-    //   }
-    // }
+    }
+    else {
+      Ti = gridinfoO[index].temperature;
+      for ( ip = 0; ip < npha; ip ++ ) {
+        tmp0 = 0.0;
+        tmp1 = 0.0;
+        for ( is1 = 0; is1 < nsol; is1++ ) {
+          for ( is2 = 0; is2 < nsol; is2++ ) {
+            if ( is1 <= is2 ) {
+              tmp0 += f4_table_A(propf4spline, pfmdat, Ti, ip, is1, is2)
+                  *cie[ip][is1]*cie[ip][is2];
+            }
+          }
+          tmp1 += f4_table_B(propf4spline, pfmdat, Ti, ip, is1)
+              *cie[ip][is1];
+        }
+        ge[ip] =
+            (tmp0 + tmp1 + f4_table_C(propf4spline, pfmdat, Ti, ip))
+            /pfmdat->Vm;
+      }
+    }
 
 
     for ( is = 0; is < nsol; is++ ) {
@@ -1791,7 +1898,7 @@ __kernel void SolverPhi_F4_smooth(__global struct fields *gridinfoO, __global st
       mu[is] = gridinfoO[index].mu[is] / pfmdat->Vm;
     }
 
-    // if ( pfmdat->ISOTHERMAL ) {
+    if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_PHASE_KINETICS ) {
       for ( ip = 0; ip < npha; ip++ ) {
         for ( is1 = 0; is1 < nsol; is1++ ) {
           for ( is2 = 0; is2 < nsol; is2++ ) {
@@ -1805,22 +1912,21 @@ __kernel void SolverPhi_F4_smooth(__global struct fields *gridinfoO, __global st
           }
         }
       }
-    // }
-    // else {
-    //   for ( ip = 0; ip < npha; ip++ ) {
-    //     for ( is1 = 0; is1 < nsol; is1++ ) {
-    //       for ( is2 = 0; is2 < nsol; is2++ ) {
-    //         if ( is1 == is2 ) {
-    //           ddgedcdc[ip][is1*nsol+is2] = 2.0*propf4spline[j].A[ip][is1][is2] / pfmdat->Vm;
-    //         }
-    //         else {
-    //           ddgedcdc[ip][is1*nsol+is2] = propf4spline[j].A[ip][is1][is2] / pfmdat->Vm;
-    //         }
-    //         InvD[ip][is1*nsol+is2] = pfmdat->DInv[ip][is1*nsol+is2];
-    //       }
-    //     }
-    //   }
-    // }
+    }
+    else {
+      Ti = gridinfoO[index].temperature;
+      for ( ip = 0; ip < npha; ip++ ) {
+        for ( is1 = 0; is1 < nsol; is1++ ) {
+          for ( is2 = 0; is2 < nsol; is2++ ) {
+            ddgedcdc[ip][is1*nsol+is2] =
+                (is1 == is2 ? 2.0 : 1.0)
+                *f4_table_A(propf4spline, pfmdat, Ti, ip, is1, is2)
+                /pfmdat->Vm;
+            InvD[ip][is1*nsol+is2] = pfmdat->DInv[ip][is1*nsol+is2];
+          }
+        }
+      }
+    }
 
     // Calculate TAU
     for ( ip1 = 0; ip1 < npha-1; ip1++ ) {
@@ -1927,7 +2033,7 @@ __kernel void SolverPhi_F4_smooth(__global struct fields *gridinfoO, __global st
   }
 }
 
-__kernel void SolverPhi_F4(__global struct fields *gridinfoO, __global struct fields *gridinfo, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep, __constant struct propmatf4 *propf4, __constant struct propmatf4spline *propf4spline, __global struct iter_variables *it_gridinfoO, __global struct symmetric_tensor *eigen_strain_phase, __global struct Stiffness_cubic *stiffness_phase, __global struct Stiffness_cubic *stiffness_phase_n) {
+__kernel void SolverPhi_F4(__global struct fields *gridinfoO, __global struct fields *gridinfo, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep, __constant struct propmatf4 *propf4, __global const struct propmatf4spline *propf4spline, __global struct iter_variables *it_gridinfoO, __global struct symmetric_tensor *eigen_strain_phase, __global struct Stiffness_cubic *stiffness_phase, __global struct Stiffness_cubic *stiffness_phase_n) {
 
   int x, y, z, ii, i1, j1, k1, i2;
   int nx, ny, nz;
@@ -2147,7 +2253,7 @@ __kernel void SolverPhi_F4(__global struct fields *gridinfoO, __global struct fi
       }
     }
 
-    // if ( pfmdat->ISOTHERMAL ) {
+    if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_PHASE_ENERGY ) {
       for ( ip = 0; ip < npha; ip ++ ) {
         tmp0 = 0.0;
         tmp1 = 0.0;
@@ -2161,22 +2267,27 @@ __kernel void SolverPhi_F4(__global struct fields *gridinfoO, __global struct fi
         }
         ge[ip] = ( tmp0 + tmp1 + propf4->C[ip] ) / pfmdat->Vm;
       }
-    // }
-    // else {
-    //   for ( ip = 0; ip < npha; ip ++ ) {
-    //     tmp0 = 0.0;
-    //     tmp1 = 0.0;
-    //     for ( is1 = 0; is1 < nsol; is1++ ) {
-    //       for ( is2 = 0; is2 < nsol; is2++ ) {
-    //         if ( is1 <= is2 ) {
-    //           tmp0 += propf4spline[i].A[ip][is1][is2]*cie[ip][is1]*cie[ip][is2];
-    //         }
-    //       }
-    //       tmp1 += propf4spline[i].B[ip][is1]*cie[ip][is1];
-    //     }
-    //     ge[ip] = ( tmp0 + tmp1 + propf4spline[i].C[ip] ) / pfmdat->Vm;
-    //   }
-    // }
+    }
+    else {
+      Ti = gridinfoO[index].temperature;
+      for ( ip = 0; ip < npha; ip ++ ) {
+        tmp0 = 0.0;
+        tmp1 = 0.0;
+        for ( is1 = 0; is1 < nsol; is1++ ) {
+          for ( is2 = 0; is2 < nsol; is2++ ) {
+            if ( is1 <= is2 ) {
+              tmp0 += f4_table_A(propf4spline, pfmdat, Ti, ip, is1, is2)
+                  *cie[ip][is1]*cie[ip][is2];
+            }
+          }
+          tmp1 += f4_table_B(propf4spline, pfmdat, Ti, ip, is1)
+              *cie[ip][is1];
+        }
+        ge[ip] =
+            (tmp0 + tmp1 + f4_table_C(propf4spline, pfmdat, Ti, ip))
+            /pfmdat->Vm;
+      }
+    }
 
 
     for ( is = 0; is < nsol; is++ ) {
@@ -2184,7 +2295,7 @@ __kernel void SolverPhi_F4(__global struct fields *gridinfoO, __global struct fi
       mu[is] = gridinfoO[index].mu[is] / pfmdat->Vm;
     }
 
-    // if ( pfmdat->ISOTHERMAL ) {
+    if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_PHASE_KINETICS ) {
       for ( ip = 0; ip < npha; ip++ ) {
         for ( is1 = 0; is1 < nsol; is1++ ) {
           for ( is2 = 0; is2 < nsol; is2++ ) {
@@ -2198,22 +2309,21 @@ __kernel void SolverPhi_F4(__global struct fields *gridinfoO, __global struct fi
           }
         }
       }
-    // }
-    // else {
-    //   for ( ip = 0; ip < npha; ip++ ) {
-    //     for ( is1 = 0; is1 < nsol; is1++ ) {
-    //       for ( is2 = 0; is2 < nsol; is2++ ) {
-    //         if ( is1 == is2 ) {
-    //           ddgedcdc[ip][is1*nsol+is2] = 2.0*propf4spline[j].A[ip][is1][is2] / pfmdat->Vm;
-    //         }
-    //         else {
-    //           ddgedcdc[ip][is1*nsol+is2] = propf4spline[j].A[ip][is1][is2] / pfmdat->Vm;
-    //         }
-    //         InvD[ip][is1*nsol+is2] = pfmdat->DInv[ip][is1*nsol+is2];
-    //       }
-    //     }
-    //   }
-    // }
+    }
+    else {
+      Ti = gridinfoO[index].temperature;
+      for ( ip = 0; ip < npha; ip++ ) {
+        for ( is1 = 0; is1 < nsol; is1++ ) {
+          for ( is2 = 0; is2 < nsol; is2++ ) {
+            ddgedcdc[ip][is1*nsol+is2] =
+                (is1 == is2 ? 2.0 : 1.0)
+                *f4_table_A(propf4spline, pfmdat, Ti, ip, is1, is2)
+                /pfmdat->Vm;
+            InvD[ip][is1*nsol+is2] = pfmdat->DInv[ip][is1*nsol+is2];
+          }
+        }
+      }
+    }
 
     // Calculate TAU
     for ( ip1 = 0; ip1 < npha-1; ip1++ ) {
@@ -2329,10 +2439,12 @@ __kernel void SolverPhi_F4(__global struct fields *gridinfoO, __global struct fi
     }
 
 
-//     for ( ip = 0; ip < npha; ip++ ) {
-//       //printf("%le, %le\n", laps[ip], calcAnisotropy_01(stphi, dab, ee_ab, ip, pfmvar->deltax, pfmvar->deltay, pfmvar->deltaz, Rot_mat, Inv_Rot_mat, y, z, x));
-//       laps[ip] = calcAnisotropy_01(stphi, dab, ee_ab, ip, pfmvar->deltax, pfmvar->deltay, pfmvar->deltaz, Rot_mat, Inv_Rot_mat, y, z, x);
-//     }
+    for ( ip = 0; ip < npha; ip++ ) {
+      laps[ip] = calcAnisotropy_01(
+          stphi, dab, ee_ab, ip,
+          pfmvar->deltax, pfmvar->deltay, pfmvar->deltaz,
+          Rot_mat, Inv_Rot_mat, y, z, x);
+    }
     //printf("%d, %d, %d, %d, %d, %le, %le, %le, %le, %le, %le, %le\n", tstep[0], y, z, x, index, pfmvar->deltax, pfmvar->deltay, pfmvar->deltaz, Rot_mat[1], Inv_Rot_mat[1], laps[0], laps[1]);
 
     // Calculate -dF/dphi for all betas and check for active phases
@@ -4086,7 +4198,7 @@ __kernel void SolverCatr_F3(__global struct fields *gridinfoO, __global struct f
     }
 }
 
-__kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global struct fields *gridinfo, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep, __constant struct propmatf4 *propf4, __constant struct propmatf4spline *propf4spline, __constant struct propmatf4spline *propf4spline1) {
+__kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global struct fields *gridinfo, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep, __constant struct propmatf4 *propf4, __global const struct propmatf4spline *propf4spline, __global const struct propmatf4spline *propf4spline1) {
 
   int x, y, z;
   int jj, ii;
@@ -4094,7 +4206,7 @@ __kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global s
   int index;
 
   int ig, is, js, ip, i1, j1, is1, is2, ip1, ip2, ks;
-  int interface, bulkphase, indij[5];
+  int interface, bulkphase, thermoy[7];
 
   double A1[npha-1];
   double dphidt[npha-1][7], gradx_phi[npha][5], grady_phi[npha][5], gradz_phi[npha][5], phix[npha][7], phiy[npha][7], phiz[npha][7], modgradphi[npha][7], scalprodct[npha][7];
@@ -4123,6 +4235,14 @@ __kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global s
   ny = get_global_size(0);
   nz = get_global_size(1);
   nx = get_global_size(2);
+
+  thermoy[0] = y;
+  thermoy[1] = y-1;
+  thermoy[2] = y+1;
+  thermoy[3] = y;
+  thermoy[4] = y;
+  thermoy[5] = y;
+  thermoy[6] = y;
 
   //index = y + ny*(z + x*nz);
 
@@ -4206,7 +4326,7 @@ __kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global s
 
           //stcscl[2].comie[ip][is]
 
-          //if ( pfmdat->ISOTHERMAL ) {
+          if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_TRANSPORT ) {
             for ( ip = 0; ip < npha; ip++ ) {
               for ( is1 = 0; is1 < nsol; is1++ ) {
                 for ( is2 =0; is2 < nsol; is2++ ) {
@@ -4214,22 +4334,21 @@ __kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global s
                 }
               }
             }
-          //}
-          /*else {
+          }
+          else {
             for ( ip = 0; ip < npha; ip++ ) {
               for ( is1 = 0; is1 < nsol; is1++ ) {
                 for ( is2 =0; is2 < nsol; is2++ ) {
-                  if ( is1 == is2 ) {
-                    muc[ip][is1*nsol+is2] = 2.0 * propf4spline[indij[ii]].A[ip][is1][is2];
-                  }
-                  else {
-                    muc[ip][is1*nsol+is2] = propf4spline[indij[ii]].A[ip][is1][is2];
-                  }
+                  muc[ip][is1*nsol+is2] =
+                      (is1 == is2 ? 2.0 : 1.0)
+                      *f4_table_A(propf4spline, pfmdat,
+                                  stgO[ii].temperature,
+                                  ip, is1, is2);
                 }
               }
               matinvnew_nsol(muc[ip], dc_dmu[ii][ip]);
             }
-          }*/
+          }
 
           //printf("%d, %d, %d\n", tstep[0], i, j);
           for ( is = 0; is < nsol; is++ ) {
@@ -4249,26 +4368,25 @@ __kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global s
 
           // bulk compositon
 
-          //if ( pfmdat->ISOTHERMAL ) {
+          if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_TRANSPORT ) {
             for ( is1 = 0; is1 < nsol; is1++ ) {
               for ( is2 = 0; is2 < nsol; is2++ ) {
                 dc_dmu[ii][bulkphase][is1*nsol+is2] = propf4->cmu[bulkphase][is1][is2];
               }
             }
-          //}
-          /*else {
+          }
+          else {
             for ( is1 = 0; is1 < nsol; is1++ ) {
               for ( is2 =0; is2 < nsol; is2++ ) {
-                if ( is1 == is2 ) {
-                  muc[bulkphase][is1*nsol+is2] = 2.0 * propf4spline[indij[ii]].A[bulkphase][is1][is2];
-                }
-                else {
-                  muc[bulkphase][is1*nsol+is2] = propf4spline[indij[ii]].A[bulkphase][is1][is2];
-                }
+                muc[bulkphase][is1*nsol+is2] =
+                    (is1 == is2 ? 2.0 : 1.0)
+                    *f4_table_A(propf4spline, pfmdat,
+                                stgO[ii].temperature,
+                                bulkphase, is1, is2);
               }
               matinvnew_nsol(muc[bulkphase], dc_dmu[ii][bulkphase]);
             }
-          }*/
+          }
 
 
           for ( is = 0; is < nsol; is++ ) {
@@ -4343,7 +4461,7 @@ __kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global s
         }
 
         ip = bulkphase;
-        //if ( pfmdat->ISOTHERMAL ) {
+        if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_TRANSPORT ) {
           tmp0 = 0.0;
           for ( is1 = 0; is1 < nsol; is1++ ) {
             tmp0  = 2.0*propf4->A[bulkphase][is1][is1]*gridinfo[index].com[is1] + propf4->B[bulkphase][is1];
@@ -4354,19 +4472,28 @@ __kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global s
             }
             mu[is1] = tmp0;
           }
-        //}
-        /*else {
+        }
+        else {
           tmp0 = 0.0;
           for ( is1 = 0; is1 < nsol; is1++ ) {
-            tmp0  = 2.0*propf4spline[j].A[bulkphase][is1][is1]*gridinfo[index].com[is1] + propf4spline[j].B[bulkphase][is1];
+            tmp0 =
+                2.0*f4_table_A(propf4spline, pfmdat,
+                               stgO[0].temperature,
+                               bulkphase, is1, is1)
+                    *gridinfo[index].com[is1]
+                + f4_table_B(propf4spline, pfmdat,
+                             stgO[0].temperature, bulkphase, is1);
             for ( is2 = 0; is2 < nsol; is2++ ) {
               if ( is1 != is2 ) {
-                tmp0 += propf4spline[j].A[bulkphase][is1][is2]*gridinfo[index].com[is2];
+                tmp0 += f4_table_A(propf4spline, pfmdat,
+                                   stgO[0].temperature,
+                                   bulkphase, is1, is2)
+                    *gridinfo[index].com[is2];
               }
             }
             mu[is1] = tmp0;
           }
-        }*/
+        }
 
         for ( is = 0; is < nsol; is++ ) {
           //deltamu[is] = mu[is] - stgO[0].mu[is];
@@ -4376,26 +4503,17 @@ __kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global s
       }
       else {
 
-        /*if ( pfmdat->ISOTHERMAL ) {
-          for ( ip = 0; ip < npha; ip++ ) {
-            for ( is = 0; is < nsol; is++ ) {
-              dcbdT_phase[ip][is] = 0.0;
-            }
-          }
-        }*/
-        /*else {
-
+        if ( !pfmdat->ISOTHERMAL && F4_RUNTIME_TRANSPORT ) {
           DELTAT = ( pfmvar->deltat ) * ( -pfmdat->TGRADIENT * pfmdat->velocity );
 
           for ( ip = 0; ip < npha; ip++ ) {
             for ( is1 = 0; is1 < nsol; is1++ ) {
               for ( is2 = 0; is2 < nsol; is2++ ) {
-                if ( is1 == is2 ) {
-                  muc1[is1*nsol+is2] = 2.0 * propf4spline1[j].A[ip][is1][is2];
-                }
-                else {
-                  muc1[is1*nsol+is2] = propf4spline1[j].A[ip][is1][is2];
-                }
+                muc1[is1*nsol+is2] =
+                    (is1 == is2 ? 2.0 : 1.0)
+                    *f4_table_A(propf4spline, pfmdat,
+                                stgO[0].temperature + DELTAT,
+                                ip, is1, is2);
               }
             }
             matinvnew_nsol(muc1, cmu1);
@@ -4403,22 +4521,27 @@ __kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global s
             for ( is1 = 0; is1 < nsol; is1++ ) {
               tmp0 = 0.0;
               for ( is2 = 0; is2 < nsol; is2++ ) {
-                tmp0 += cmu1[is1*nsol+is2] * ( gridOld[index].mu[is2] - propf4spline1[j].B[ip][is2] );
+                tmp0 += cmu1[is1*nsol+is2]
+                    * (stgO[0].mu[is2]
+                       - f4_table_B(propf4spline, pfmdat,
+                                    stgO[0].temperature + DELTAT,
+                                    ip, is2));
               }
               c_tdt[is1] = tmp0;
             }
 
             for ( is = 0; is < nsol; is++ ) {
-              dcbdT_phase[ip][is] = c_tdt[is] - stcscl[4].comie[ip][is];
+              dcbdT_phase[ip][is] =
+                  c_tdt[is] - stcscl[0].comie[ip][is];
             }
-
           }
-        }*/
+        }
 
 
         for ( is1 = 0; is1 < nsol; is1++ ) {
 
-          deltac[is1] = pfmvar->deltat * ( divflux[is1] + jatr[is1] );
+          /* Antitrapping is intentionally disabled during interface smoothing. */
+          deltac[is1] = pfmvar->deltat * divflux[is1];
 
           // gridinfo[index].com[is1] = stgO[0].com[is1] + deltac[is1];
           //
@@ -4460,7 +4583,7 @@ __kernel void SolverCatr_F4_smooth(__global struct fields *gridinfoO, __global s
 
 }
 
-__kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct fields *gridinfo, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep, __constant struct propmatf4 *propf4, __constant struct propmatf4spline *propf4spline, __constant struct propmatf4spline *propf4spline1) { 
+__kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct fields *gridinfo, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep, __constant struct propmatf4 *propf4, __global const struct propmatf4spline *propf4spline, __global const struct propmatf4spline *propf4spline1) {
 
   int x, y, z;
   int jj, ii;
@@ -4468,7 +4591,7 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
   int index;
 
   int ig, is, js, ip, i1, j1, is1, is2, ip1, ip2, ks;
-  int interface, bulkphase, indij[5];
+  int interface, bulkphase, thermoy[7];
 
   double A1[npha-1];
   double dphidt[npha-1][7], gradx_phi[npha][5], grady_phi[npha][5], gradz_phi[npha][5], phix[npha][7], phiy[npha][7], phiz[npha][7], modgradphi[npha][7], scalprodct[npha][7];
@@ -4497,6 +4620,14 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
   ny = get_global_size(0);
   nz = get_global_size(1);
   nx = get_global_size(2);
+
+  thermoy[0] = y;
+  thermoy[1] = y-1;
+  thermoy[2] = y+1;
+  thermoy[3] = y;
+  thermoy[4] = y;
+  thermoy[5] = y;
+  thermoy[6] = y;
 
   //index = y + ny*(z + x*nz);
 
@@ -4696,6 +4827,9 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
       for ( ip = 0; ip < npha-1; ip++ ) {
         jatr[is] += jatc[ip][is];
       }
+      if (!pfmdat->atr) {
+        jatr[is] = 0.0;
+      }
     }
 
     for ( is1 = 0; is1 < nsol; is1++ ) {
@@ -4728,7 +4862,7 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
 
           //stcscl[2].comie[ip][is]
 
-          //if ( pfmdat->ISOTHERMAL ) {
+          if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_TRANSPORT ) {
             for ( ip = 0; ip < npha; ip++ ) {
               for ( is1 = 0; is1 < nsol; is1++ ) {
                 for ( is2 =0; is2 < nsol; is2++ ) {
@@ -4737,22 +4871,21 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
                 }
               }
             }
-          //}
-          /*else {
+          }
+          else {
             for ( ip = 0; ip < npha; ip++ ) {
               for ( is1 = 0; is1 < nsol; is1++ ) {
                 for ( is2 =0; is2 < nsol; is2++ ) {
-                  if ( is1 == is2 ) {
-                    muc[ip][is1*nsol+is2] = 2.0 * propf4spline[indij[ii]].A[ip][is1][is2];
-                  }
-                  else {
-                    muc[ip][is1*nsol+is2] = propf4spline[indij[ii]].A[ip][is1][is2];
-                  }
+                  muc[ip][is1*nsol+is2] =
+                      (is1 == is2 ? 2.0 : 1.0)
+                      *f4_table_A(propf4spline, pfmdat,
+                                  stgO[ii].temperature,
+                                  ip, is1, is2);
                 }
               }
               matinvnew_nsol(muc[ip], dc_dmu[ii][ip]);
             }
-          }*/
+          }
 
           //printf("%d, %d, %d\n", tstep[0], i, j);
           for ( is = 0; is < nsol; is++ ) {
@@ -4773,27 +4906,26 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
 
           // bulk compositon
 
-          //if ( pfmdat->ISOTHERMAL ) {
+          if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_TRANSPORT ) {
             for ( is1 = 0; is1 < nsol; is1++ ) {
               for ( is2 = 0; is2 < nsol; is2++ ) {
                 dc_dmu[ii][bulkphase][is1*nsol+is2] = propf4->cmu[bulkphase][is1][is2];
                 //printf("BC: %d, %d, %d, %d, %d, %d, %d, %d, %le, %le\n", tstep[0], x, y, z, index, ip, is1, is2, dc_dmu[ii][ip][is1*nsol+is2], propf4->cmu[ip][is1][is2]);
               }
             }
-          //}
-          /*else {
+          }
+          else {
             for ( is1 = 0; is1 < nsol; is1++ ) {
               for ( is2 =0; is2 < nsol; is2++ ) {
-                if ( is1 == is2 ) {
-                  muc[bulkphase][is1*nsol+is2] = 2.0 * propf4spline[indij[ii]].A[bulkphase][is1][is2];
-                }
-                else {
-                  muc[bulkphase][is1*nsol+is2] = propf4spline[indij[ii]].A[bulkphase][is1][is2];
-                }
+                muc[bulkphase][is1*nsol+is2] =
+                    (is1 == is2 ? 2.0 : 1.0)
+                    *f4_table_A(propf4spline, pfmdat,
+                                stgO[ii].temperature,
+                                bulkphase, is1, is2);
               }
               matinvnew_nsol(muc[bulkphase], dc_dmu[ii][bulkphase]);
             }
-          }*/
+          }
 
 
           for ( is = 0; is < nsol; is++ ) {
@@ -4893,7 +5025,7 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
         //printf("BC:%d, %d, %d, %d, %d, %le, %le, %le, %le, %le\n", tstep[0], x, y, z, index, divflux[0], divflux[1], jatr[0], jatr[1], pfmvar->deltat);
 
         ip = bulkphase;
-        //if ( pfmdat->ISOTHERMAL ) {
+        if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_TRANSPORT ) {
           tmp0 = 0.0;
           for ( is1 = 0; is1 < nsol; is1++ ) {
             tmp0  = 2.0*propf4->A[bulkphase][is1][is1]*gridinfo[index].com[is1] + propf4->B[bulkphase][is1];
@@ -4904,19 +5036,28 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
             }
             mu[is1] = tmp0;
           }
-        //}
-        /*else {
+        }
+        else {
           tmp0 = 0.0;
           for ( is1 = 0; is1 < nsol; is1++ ) {
-            tmp0  = 2.0*propf4spline[j].A[bulkphase][is1][is1]*gridinfo[index].com[is1] + propf4spline[j].B[bulkphase][is1];
+            tmp0 =
+                2.0*f4_table_A(propf4spline, pfmdat,
+                               stgO[0].temperature,
+                               bulkphase, is1, is1)
+                    *gridinfo[index].com[is1]
+                + f4_table_B(propf4spline, pfmdat,
+                             stgO[0].temperature, bulkphase, is1);
             for ( is2 = 0; is2 < nsol; is2++ ) {
               if ( is1 != is2 ) {
-                tmp0 += propf4spline[j].A[bulkphase][is1][is2]*gridinfo[index].com[is2];
+                tmp0 += f4_table_A(propf4spline, pfmdat,
+                                   stgO[0].temperature,
+                                   bulkphase, is1, is2)
+                    *gridinfo[index].com[is2];
               }
             }
             mu[is1] = tmp0;
           }
-        }*/
+        }
 
         for ( is = 0; is < nsol; is++ ) {
           //deltamu[is] = mu[is] - stgO[0].mu[is];
@@ -4926,26 +5067,17 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
       }
       else {
 
-        /*if ( pfmdat->ISOTHERMAL ) {
-          for ( ip = 0; ip < npha; ip++ ) {
-            for ( is = 0; is < nsol; is++ ) {
-              dcbdT_phase[ip][is] = 0.0;
-            }
-          }
-        }*/
-        /*else {
-
+        if ( !pfmdat->ISOTHERMAL && F4_RUNTIME_TRANSPORT ) {
           DELTAT = ( pfmvar->deltat ) * ( -pfmdat->TGRADIENT * pfmdat->velocity );
 
           for ( ip = 0; ip < npha; ip++ ) {
             for ( is1 = 0; is1 < nsol; is1++ ) {
               for ( is2 = 0; is2 < nsol; is2++ ) {
-                if ( is1 == is2 ) {
-                  muc1[is1*nsol+is2] = 2.0 * propf4spline1[j].A[ip][is1][is2];
-                }
-                else {
-                  muc1[is1*nsol+is2] = propf4spline1[j].A[ip][is1][is2];
-                }
+                muc1[is1*nsol+is2] =
+                    (is1 == is2 ? 2.0 : 1.0)
+                    *f4_table_A(propf4spline, pfmdat,
+                                stgO[0].temperature + DELTAT,
+                                ip, is1, is2);
               }
             }
             matinvnew_nsol(muc1, cmu1);
@@ -4953,17 +5085,21 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
             for ( is1 = 0; is1 < nsol; is1++ ) {
               tmp0 = 0.0;
               for ( is2 = 0; is2 < nsol; is2++ ) {
-                tmp0 += cmu1[is1*nsol+is2] * ( gridOld[index].mu[is2] - propf4spline1[j].B[ip][is2] );
+                tmp0 += cmu1[is1*nsol+is2]
+                    * (stgO[0].mu[is2]
+                       - f4_table_B(propf4spline, pfmdat,
+                                    stgO[0].temperature + DELTAT,
+                                    ip, is2));
               }
               c_tdt[is1] = tmp0;
             }
 
             for ( is = 0; is < nsol; is++ ) {
-              dcbdT_phase[ip][is] = c_tdt[is] - stcscl[4].comie[ip][is];
+              dcbdT_phase[ip][is] =
+                  c_tdt[is] - stcscl[0].comie[ip][is];
             }
-
           }
-        }*/
+        }
 
         for ( ip1 = 0; ip1 < npha; ip1++ ) {
           sum_dhphi = 0.0;
@@ -4973,7 +5109,8 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
 
           for ( is = 0; is < nsol; is++ ) {
             sum[is]       += stcscl[0].comie[ip1][is] * sum_dhphi;
-            // sum_dcbdT[is] += dcbdT_phase[ip1][is] * hfhi(stgO[0].phi, ip1);
+            sum_dcbdT[is] +=
+                dcbdT_phase[ip1][is] * hfhi(stgO[0].phi, ip1);
           }
         }
 
@@ -4985,12 +5122,12 @@ __kernel void SolverCatr_F4(__global struct fields *gridinfoO, __global struct f
 
           gridinfo[index].com[is1] = stgO[0].com[is1] + deltac[is1];
 
-          //if ( pfmdat->ISOTHERMAL ) {
+          if ( pfmdat->ISOTHERMAL || !F4_RUNTIME_TRANSPORT ) {
             deltac[is1] += -sum[is1];
-          //}
-          //else {
-          //  deltac[is1] += -sum[is1] - sum_dcbdT[is1];
-          //}
+          }
+          else {
+            deltac[is1] += -sum[is1] - sum_dcbdT[is1];
+          }
           for ( is2 = 0; is2 < nsol; is2++ ) {
             for ( ip = 0; ip < npha; ip++ ) {
               dcdmu[is1*nsol+is2] += dc_dmu[0][ip][is1*nsol+is2] * hfhi(stgO[0].phi, ip);
@@ -6779,7 +6916,6 @@ __kernel void update_temp_UC(__global struct fields *gridinfo, __global int *tst
 __kernel void update_temp_DS(__global struct fields *gridinfo, __global int *tstep, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar) {
 
   int x, y, z, nx, ny, nz, index;
-  int is, ip, x0;
 
   y = get_global_id(0);
   z = get_global_id(1);
@@ -6791,8 +6927,16 @@ __kernel void update_temp_DS(__global struct fields *gridinfo, __global int *tst
 
   index =  (y  ) + ny*( (x  )*nz + (z  ) );
 
-    x0 = x + (pfmdat->myrank*(nx-2));
-    gridinfo[index].temperature = pfmdat->Toffset + pfmdat->TGRADIENT*((x0-pfmdat->TPosOffset+pfmdat->shift_OFFSET)*pfmvar->deltax-(pfmdat->velocity*tstep[0]*pfmvar->deltat));
+  /*
+   * Directional-solidification temperature and the moving window both act
+   * along global y.  y is not MPI-decomposed; y=1 is the first physical cell.
+   */
+  gridinfo[index].temperature =
+      pfmdat->Toffset
+      + pfmdat->TGRADIENT
+          * (((y - 1) - pfmdat->TPosOffset + pfmdat->shift_OFFSET)
+                 * pfmvar->deltay
+             - pfmdat->velocity*tstep[0]*pfmvar->deltat);
 
 
 
@@ -6821,8 +6965,8 @@ __kernel void apply_BC_temp_it_noflux(__global struct fields *gridinfo, __consta
 
   index =  (y  ) + ny*( (x  )*nz + (z  ) );
 
-  if (x==0) {
-    gridinfo[index].temperature = gridinfo[(y  ) + ny*( (x+1  )*nz + (z  ) )].temperature;
+  if (y==ny-1) {
+    gridinfo[index].temperature = gridinfo[(y-1) + ny*( (x  )*nz + (z  ) )].temperature;
   }
 
 }
@@ -6842,8 +6986,8 @@ __kernel void apply_BC_temp_ib_noflux(__global struct fields *gridinfo, __consta
 
   index =  (y  ) + ny*( (x  )*nz + (z  ) );
 
-  if (x==nx-1) {
-    gridinfo[index].temperature = gridinfo[(y  ) + ny*( (x-1  )*nz + (z  ) )].temperature;
+  if (y==0) {
+    gridinfo[index].temperature = gridinfo[(y+1) + ny*( (x  )*nz + (z  ) )].temperature;
   }
 
 }

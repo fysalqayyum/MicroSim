@@ -167,12 +167,23 @@ void CL_device_kernel_build() {
   if (ret!=CL_SUCCESS) {
     printf("program build with source error %d\n", ret);
   }
-  ret = clBuildProgram(program, 1, &device_id[device_run], NULL, NULL, NULL);
+  /*
+   * The optimized build is the default after controlled field-equivalence
+   * testing. Keep an explicit rollback switch for diagnostic comparisons.
+   */
+#ifdef MICROSIM_DISABLE_CL_OPTIMIZER
+  const char *build_options = "-cl-opt-disable";
+#else
+  const char *build_options = "";
+#endif
+  ret = clBuildProgram(program, 1, &device_id[device_run],
+                       build_options, NULL, NULL);
   if (ret!=CL_SUCCESS) {
     printf("program build error %d\n", ret);
   }
   else { 
-    printf("Rank = %d: \t Program built \n", rank);
+    printf("Rank = %d: \t Program built with options: %s\n",
+           rank, build_options);
   }
 
   char buildString[1000000];

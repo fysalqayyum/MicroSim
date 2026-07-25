@@ -10,8 +10,6 @@ void reading_input_parameters(char *argv[]) {
   
   char tmpstr1[100];
   char tmpstr2[100];
-  char **tmp;
-  
   bool decision;
   
   char *str1, *str2, *token, *subtoken;
@@ -23,7 +21,7 @@ void reading_input_parameters(char *argv[]) {
   long phase;
   
   while(fgets(tempbuff,1000,fr)) {
-    sscanf(tempbuff, "%100s = %100[^;];", tmpstr1, tmpstr2);
+    sscanf(tempbuff, "%99s = %99[^;];", tmpstr1, tmpstr2);
 //     printf("%s\n",  tmpstr1);
 //     printf("%s\n",  tmpstr2);
     
@@ -211,25 +209,21 @@ void reading_input_parameters(char *argv[]) {
         }
       }
       else if ((strcmp(tmpstr1, "Tempgrady") == 0) && (TEMPGRADY)) {
-        tmp = (char**)malloc(sizeof(char*)*5);
-        for (i = 0; i < 5; ++i) {
-          tmp[i] = (char*)malloc(sizeof(char)*10);
+        /*
+         * Parse directly into doubles.  The former implementation copied
+         * each token into a 10-byte allocation; values such as "889.604509"
+         * overflowed that allocation when the terminating NUL was written.
+         */
+        if (sscanf(tmpstr2, "{%lf,%lf,%lf,%lf,%lf}",
+                   &temperature_gradientY.base_temp,
+                   &temperature_gradientY.DeltaT,
+                   &temperature_gradientY.Distance,
+                   &temperature_gradientY.gradient_OFFSET,
+                   &temperature_gradientY.velocity) != 5) {
+          printf("Error: could not parse five Tempgrady values from '%s'\n",
+                 tmpstr2);
+          exit(1);
         }
-        for (i = 0, str1 = tmpstr2; ; i++, str1 = NULL) {
-          token = strtok_r(str1, "{,}", &saveptr1);
-          if (token == NULL)
-              break;
-          strcpy(tmp[i],token);
-        }
-        temperature_gradientY.base_temp          = atof(tmp[0]);
-        temperature_gradientY.DeltaT             = atof(tmp[1]);
-        temperature_gradientY.Distance           = atof(tmp[2]);
-        temperature_gradientY.gradient_OFFSET    = atof(tmp[3]);
-        temperature_gradientY.velocity           = atof(tmp[4]);
-        for (i = 0; i < 5; ++i) {
-          free(tmp[i]);
-        }
-        free(tmp);
       }
       else if (strcmp(tmpstr1, "Shift") == 0) {
         SHIFT = atoi(tmpstr2);

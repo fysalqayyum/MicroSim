@@ -57,7 +57,7 @@
 #include "solverloop/file_writer.h" 
 
 int main(int argc, char * argv[]) { 
-  
+
   // MPI_Comm comm=MPI_COMM_WORLD;
 
 
@@ -179,10 +179,69 @@ int main(int argc, char * argv[]) {
 
   CL_initialize_variables();
 
+  if (FUNCTION_F == 4 && !ISOTHERMAL) {
+    FunctionF_4_SplineCPU(propf4spline);
+    pfmdat.f4_table_Tmin = f4_table_Tmin;
+    pfmdat.f4_table_dT = f4_table_dT;
+    pfmdat.f4_table_count = f4_table_count;
+  }
+
   CL_device_kernel_build();
   
   CL_Initialize_domain();
-  
+
+  /*
+   * The binary restart reader restores interior cells only. Initialize each
+   * ghost cell from its nearest interior neighbour before device allocation,
+   * matching the no-flux boundary kernels, and mirror the restored state into
+   * the old-state buffer.
+   */
+  if (!((STARTTIME == 0) && (RESTART == 0))) {
+    const long rx = mpiparam.rows_x, ry = mpiparam.rows_y, rz = mpiparam.rows_z;
+    /* Report the pre-initialization state to make restart failures traceable. */
+    double gmin = 1e300, gmax = -1e300, imin = 1e300, imax = -1e300;
+    long gnan = 0, inan = 0, gpnan = 0;
+    for (long xx = 0; xx < rx; xx++)
+      for (long zz = 0; zz < rz; zz++)
+        for (long yy = 0; yy < ry; yy++) {
+          long id = yy + ry*(zz + rz*xx);
+          int ghost = (xx==0||xx==rx-1||yy==0||yy==ry-1||zz==0||zz==rz-1);
+          double mu = gridinfomN[id].compi[0], ph = gridinfomN[id].phia[0];
+          if (ghost) {
+            if (isnan(mu)||isinf(mu)) gnan++;
+            if (isnan(ph)||isinf(ph)) gpnan++;
+            if (mu<gmin) gmin=mu; if (mu>gmax) gmax=mu;
+          } else {
+            if (isnan(mu)||isinf(mu)) inan++;
+            if (mu<imin) imin=mu; if (mu>imax) imax=mu;
+          }
+        }
+    printf("RESTART_DIAG interior compi[0]: min=%g max=%g nan/inf=%ld\n", imin, imax, inan);
+    printf("RESTART_DIAG ghost    compi[0]: min=%g max=%g nan/inf=%ld  phia[0] nan/inf=%ld\n", gmin, gmax, gnan, gpnan);
+    /* Clamp each coordinate into the interior [1, rows-2]. */
+    for (long xx = 0; xx < rx; xx++) {
+      long xs = xx < 1 ? 1 : (xx > rx-2 ? rx-2 : xx);
+      for (long zz = 0; zz < rz; zz++) {
+        long zs = zz < 1 ? 1 : (zz > rz-2 ? rz-2 : zz);
+        for (long yy = 0; yy < ry; yy++) {
+          long ys = yy < 1 ? 1 : (yy > ry-2 ? ry-2 : yy);
+          if (xx==xs && yy==ys && zz==zs) continue; /* interior: keep */
+          gridinfomN[yy + ry*(zz + rz*xx)] = gridinfomN[ys + ry*(zs + rz*xs)];
+        }
+      }
+    }
+    memcpy(gridinfomO, gridinfomN, nxnynz*sizeof(struct fields));
+    /*
+     * Restart files do not carry this working displacement state. Match the
+     * fresh-start initialization before the array is copied to the device.
+     */
+    for (long ii = 0; ii < nxnynz; ii++)
+      for (int a = 0; a < 3; a++)
+        for (int b = 0; b < 3; b++)
+          iter_gridinfom[ii].disp[a][b] = 0.0;
+    printf("RESTART_DIAG ghost no-flux filled; O<-N mirrored; disp zeroed\n");
+  }
+
   CL_buffer_allocation();
 
   CL_create_kernel_args();
@@ -204,11 +263,41 @@ int main(int argc, char * argv[]) {
   //Time-loop
   for(t=1;t<=ntimesteps;t++) {
     
-    if (rank==MASTER)
-    printf("Timestep=%ld\n",t);
+    if ((rank == MASTER) &&
+        ((t == 1) || (time_output > 0 && t%time_output == 0))) {
+      printf("Timestep=%ld\n", t);
+    }
 
     CL_Solve_phi_com_Function();
-    
+
+    /* Check the first continued step and localize any non-finite value. */
+    if (t == 1 && !((STARTTIME == 0) && (RESTART == 0))) {
+      CL_DeviceToHost();
+      const long rx = mpiparam.rows_x, ry = mpiparam.rows_y, rz = mpiparam.rows_z;
+      long firstnan = -1, nancount = 0;
+      for (long xx = 0; xx < rx; xx++)
+        for (long zz = 0; zz < rz; zz++)
+          for (long yy = 0; yy < ry; yy++) {
+            long id = yy + ry*(zz + rz*xx);
+            double mu = gridinfomN[id].compi[0];
+            if (isnan(mu) || isinf(mu)) {
+              nancount++;
+              if (firstnan < 0) {
+                int gh = (xx==0||xx==rx-1||yy==0||yy==ry-1||zz==0||zz==rz-1);
+                printf("RESTART_STEP1 first NaN at x=%ld y=%ld z=%ld (%s) "
+                       "phia0=%g compi0=%g comp0=%g T=%g\n", xx, yy, zz,
+                       gh?"ghost":"interior", gridinfomN[id].phia[0],
+                       gridinfomN[id].compi[0], gridinfomN[id].composition[0],
+                       gridinfomN[id].temperature);
+                firstnan = id;
+              }
+            }
+          }
+      printf("RESTART_STEP1 total non-finite compi[0] after step 1 = %ld / %ld\n",
+             nancount, rx*ry*rz);
+      if (nancount == 0) printf("RESTART_STEP1 all finite after step 1\n");
+    }
+
     CL_Update_Temperature(t + STARTTIME);
     
     if (SHIFT) {
@@ -261,6 +350,3 @@ int main(int argc, char * argv[]) {
   }
   MPI_Finalize();
 }
-
-
-

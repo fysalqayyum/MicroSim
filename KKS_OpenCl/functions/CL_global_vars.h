@@ -74,6 +74,8 @@ struct pfmval {
   double TPosOffset;
   double TGRADIENT;
   double velocity;
+  double f4_table_Tmin;
+  double f4_table_dT;
   double NoiseFac;
   double interfaceUplimit;
   double interfaceDownlimit;
@@ -81,6 +83,7 @@ struct pfmval {
   double rho;
   double damping_factor;
   long shift_OFFSET;
+  long f4_table_count;
   int thermophase[npha];
   int   nproc;
   int   Nx;
@@ -311,6 +314,6 @@ void apply_BC_temp_ib_noflux(double *, struct pfmval *);
 void apply_BC_temp_it_noflux(double *, struct pfmval *);
 void propf3Hostupdate(struct propmatf3 *);
 void propf4Hostupdate(struct propmatf4 *);
-void FunctionF_4_SplineCPU(struct propmatf4spline *propf4spline, double *temp, int );
+void FunctionF_4_SplineCPU(struct propmatf4spline *propf4spline);
 void mpi_exchange_dim0(int rank);
 void mpi_exchange_dim0_iter(int rank);

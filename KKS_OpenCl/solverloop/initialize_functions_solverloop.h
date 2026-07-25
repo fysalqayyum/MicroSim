@@ -19,7 +19,7 @@ void initialize_functions_solverloop(){
        printf("**** * * * * * * * * * * * * * * * * * * * * *\n"); 
        exit(1);
   }
-  if ((FUNCTION_F == 2)) {
+  if (FUNCTION_F == 2) {
     thermo_phase = (long*)malloc(NUMPHASES*sizeof(long));
     long a, b;
     for (a=0; a<NUMPHASES; a++) {
@@ -37,7 +37,7 @@ void initialize_functions_solverloop(){
     dpsi                      = function_F_02_dpsi;
     CL_Solve_phi_com_Function = CL_Solve_phi_com_Function_F_2;
   }
-  if ((FUNCTION_F == 3)) {
+  if (FUNCTION_F == 3) {
     thermo_phase = (long*)malloc(NUMPHASES*sizeof(long));
     long a, b;
     for (a=0; a<NUMPHASES; a++) {
@@ -60,7 +60,7 @@ void initialize_functions_solverloop(){
     init_propertymatrices     = function_F_03_init_propertymatrices;
     CL_Solve_phi_com_Function = CL_Solve_phi_com_Function_F_3;
   }
-  if ((FUNCTION_F == 4)) {
+  if (FUNCTION_F == 4) {
     thermo_phase = (long*)malloc(NUMPHASES*sizeof(long));
     long a, b;
     for (a=0; a<NUMPHASES; a++) {
