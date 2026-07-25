@@ -6,8 +6,8 @@ void fill_domain(char *argv[]) {
   int i;
   char tempbuff[1000];
   
-  char tmpstr1[100];
-  char tmpstr2[100];
+  char tmpstr1[1000];
+  char tmpstr2[1000];
   char **tmp;
   
   bool decision;
@@ -23,10 +23,11 @@ void fill_domain(char *argv[]) {
   fr = fopen(argv[2], "rt");
   
   if(fr == NULL) {
-    printf("file %s not found", argv[2]);
+    fprintf(stderr, "Filling file not found: %s\n", argv[2]);
+    exit(EXIT_FAILURE);
   }
   while(fgets(tempbuff,1000,fr)) {
-    sscanf(tempbuff, "%99s = %99[^;];", tmpstr1, tmpstr2);
+    sscanf(tempbuff, "%999s = %999[^;];", tmpstr1, tmpstr2);
 //     printf("%s\n",  tmpstr1);
 //     printf("%s\n",  tmpstr2);
     if(tmpstr1[0] != '#') {

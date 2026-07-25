@@ -2,14 +2,15 @@ void reading_input_parameters(char *argv[]) {
   FILE * fr = fopen(argv[1], "rt");
   
   if(fr == NULL) {
-    printf("file %s not found", argv[1]);
+    fprintf(stderr, "Input file not found: %s\n", argv[1]);
+    exit(EXIT_FAILURE);
   }
   printf("Processor:%d--Reading Infile\n",rank);
   int i;
   char tempbuff[1000];
   
-  char tmpstr1[100];
-  char tmpstr2[100];
+  char tmpstr1[1000];
+  char tmpstr2[1000];
   bool decision;
   
   char *str1, *str2, *token, *subtoken;
@@ -21,7 +22,7 @@ void reading_input_parameters(char *argv[]) {
   long phase;
   
   while(fgets(tempbuff,1000,fr)) {
-    sscanf(tempbuff, "%99s = %99[^;];", tmpstr1, tmpstr2);
+    sscanf(tempbuff, "%999s = %999[^;];", tmpstr1, tmpstr2);
 //     printf("%s\n",  tmpstr1);
 //     printf("%s\n",  tmpstr2);
     
@@ -353,15 +354,27 @@ void reading_input_parameters(char *argv[]) {
   }
   fclose(fr);
   
-  char outfile[100];
+  char outfile[1005];
   
-  strcpy(tmpstr2, argv[1]);
+  if (snprintf(tmpstr2, sizeof(tmpstr2), "%s", argv[1])
+      >= (int)sizeof(tmpstr2)) {
+    fprintf(stderr, "Input filename is too long\n");
+    exit(EXIT_FAILURE);
+  }
 //   sscanf(argv[1], "%100s.%100[^;]", tmpstr1, tmpstr2);
   strcpy(tmpstr1,strtok(tmpstr2, "."));
   
-  sprintf(outfile, "%s.out", tmpstr1);
+  if (snprintf(outfile, sizeof(outfile), "%s.out", tmpstr1)
+      >= (int)sizeof(outfile)) {
+    fprintf(stderr, "Derived output filename is too long\n");
+    exit(EXIT_FAILURE);
+  }
   
   fr = fopen(outfile, "w");
+  if (fr == NULL) {
+    fprintf(stderr, "Could not open derived output file: %s\n", outfile);
+    exit(EXIT_FAILURE);
+  }
   
   char key[1000];
   

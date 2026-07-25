@@ -6,8 +6,8 @@ void read_boundary_conditions(char *argv[]) {
   int i;
   char tempbuff[1000];
   
-  char tmpstr1[100];
-  char tmpstr2[100];
+  char tmpstr1[1000];
+  char tmpstr2[1000];
   char **tmp;
   
   bool decision;
@@ -23,11 +23,12 @@ void read_boundary_conditions(char *argv[]) {
   fr = fopen(argv[1], "rt");
   
   if(fr == NULL) {
-    printf("file %s not found", argv[1]);
+    fprintf(stderr, "Input file not found: %s\n", argv[1]);
+    exit(EXIT_FAILURE);
   }
   
   while(fgets(tempbuff,1000,fr)) {
-    sscanf(tempbuff, "%99s = %99[^;];", tmpstr1, tmpstr2);
+    sscanf(tempbuff, "%999s = %999[^;];", tmpstr1, tmpstr2);
 //     printf("%s\n",  tmpstr1);
 //     printf("%s\n",  tmpstr2);
     if(tmpstr1[0] != '#') {
@@ -41,15 +42,27 @@ void read_boundary_conditions(char *argv[]) {
   }
   fclose(fr);
   
-  char outfile[100];
+  char outfile[1004];
   
-  strcpy(tmpstr2, argv[1]);
+  if (snprintf(tmpstr2, sizeof(tmpstr2), "%s", argv[1])
+      >= (int)sizeof(tmpstr2)) {
+    fprintf(stderr, "Input filename is too long\n");
+    exit(EXIT_FAILURE);
+  }
   
   strcpy(tmpstr1,strtok(tmpstr2, "."));
   
-  sprintf(outfile, "%s.bd", tmpstr1);
+  if (snprintf(outfile, sizeof(outfile), "%s.bd", tmpstr1)
+      >= (int)sizeof(outfile)) {
+    fprintf(stderr, "Derived boundary filename is too long\n");
+    exit(EXIT_FAILURE);
+  }
   
   fr = fopen(outfile, "w");
+  if (fr == NULL) {
+    fprintf(stderr, "Could not open derived boundary file: %s\n", outfile);
+    exit(EXIT_FAILURE);
+  }
   
   PRINT_BOUNDARY_CONDITIONS(fr);
   
