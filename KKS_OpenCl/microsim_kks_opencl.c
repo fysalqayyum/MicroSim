@@ -153,9 +153,16 @@ int main(int argc, char * argv[]) {
     if (SHIFT) {
       FILE *fp;
       fp = fopen("DATA/shift.dat","r");
-
-      for(file_iter=0; file_iter <= STARTTIME/saveT; file_iter++) {
-        fscanf(fp,"%ld %ld\n",&time_file, &position);
+      if (fp == NULL) {
+        perror("DATA/shift.dat");
+        exit(1);
+      }
+      position = 0;
+      while (fscanf(fp,"%ld %ld",&time_file, &shift_position) == 2) {
+        if (time_file > STARTTIME) {
+          break;
+        }
+        position = shift_position;
       }
       fclose(fp);
       shift_position = position;
@@ -198,26 +205,6 @@ int main(int argc, char * argv[]) {
    */
   if (!((STARTTIME == 0) && (RESTART == 0))) {
     const long rx = mpiparam.rows_x, ry = mpiparam.rows_y, rz = mpiparam.rows_z;
-    /* Report the pre-initialization state to make restart failures traceable. */
-    double gmin = 1e300, gmax = -1e300, imin = 1e300, imax = -1e300;
-    long gnan = 0, inan = 0, gpnan = 0;
-    for (long xx = 0; xx < rx; xx++)
-      for (long zz = 0; zz < rz; zz++)
-        for (long yy = 0; yy < ry; yy++) {
-          long id = yy + ry*(zz + rz*xx);
-          int ghost = (xx==0||xx==rx-1||yy==0||yy==ry-1||zz==0||zz==rz-1);
-          double mu = gridinfomN[id].compi[0], ph = gridinfomN[id].phia[0];
-          if (ghost) {
-            if (isnan(mu)||isinf(mu)) gnan++;
-            if (isnan(ph)||isinf(ph)) gpnan++;
-            if (mu<gmin) gmin=mu; if (mu>gmax) gmax=mu;
-          } else {
-            if (isnan(mu)||isinf(mu)) inan++;
-            if (mu<imin) imin=mu; if (mu>imax) imax=mu;
-          }
-        }
-    printf("RESTART_DIAG interior compi[0]: min=%g max=%g nan/inf=%ld\n", imin, imax, inan);
-    printf("RESTART_DIAG ghost    compi[0]: min=%g max=%g nan/inf=%ld  phia[0] nan/inf=%ld\n", gmin, gmax, gnan, gpnan);
     /* Clamp each coordinate into the interior [1, rows-2]. */
     for (long xx = 0; xx < rx; xx++) {
       long xs = xx < 1 ? 1 : (xx > rx-2 ? rx-2 : xx);
@@ -239,7 +226,6 @@ int main(int argc, char * argv[]) {
       for (int a = 0; a < 3; a++)
         for (int b = 0; b < 3; b++)
           iter_gridinfom[ii].disp[a][b] = 0.0;
-    printf("RESTART_DIAG ghost no-flux filled; O<-N mirrored; disp zeroed\n");
   }
 
   CL_buffer_allocation();
@@ -269,34 +255,6 @@ int main(int argc, char * argv[]) {
     }
 
     CL_Solve_phi_com_Function();
-
-    /* Check the first continued step and localize any non-finite value. */
-    if (t == 1 && !((STARTTIME == 0) && (RESTART == 0))) {
-      CL_DeviceToHost();
-      const long rx = mpiparam.rows_x, ry = mpiparam.rows_y, rz = mpiparam.rows_z;
-      long firstnan = -1, nancount = 0;
-      for (long xx = 0; xx < rx; xx++)
-        for (long zz = 0; zz < rz; zz++)
-          for (long yy = 0; yy < ry; yy++) {
-            long id = yy + ry*(zz + rz*xx);
-            double mu = gridinfomN[id].compi[0];
-            if (isnan(mu) || isinf(mu)) {
-              nancount++;
-              if (firstnan < 0) {
-                int gh = (xx==0||xx==rx-1||yy==0||yy==ry-1||zz==0||zz==rz-1);
-                printf("RESTART_STEP1 first NaN at x=%ld y=%ld z=%ld (%s) "
-                       "phia0=%g compi0=%g comp0=%g T=%g\n", xx, yy, zz,
-                       gh?"ghost":"interior", gridinfomN[id].phia[0],
-                       gridinfomN[id].compi[0], gridinfomN[id].composition[0],
-                       gridinfomN[id].temperature);
-                firstnan = id;
-              }
-            }
-          }
-      printf("RESTART_STEP1 total non-finite compi[0] after step 1 = %ld / %ld\n",
-             nancount, rx*ry*rz);
-      if (nancount == 0) printf("RESTART_STEP1 all finite after step 1\n");
-    }
 
     CL_Update_Temperature(t + STARTTIME);
     

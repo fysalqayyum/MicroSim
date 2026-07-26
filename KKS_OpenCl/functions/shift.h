@@ -24,6 +24,8 @@ void apply_shiftY_local(struct fields* local_grid, struct csle* local_cscl,
                         long shift_cells, long new_shift_offset,
                         long absolute_timestep) {
   long x, y, z, src, dst, ip, is;
+  const long first_y = 1;
+  const long last_y = mpiparam.rows_y - 2;
   double c[NUMCOMPONENTS-1];
   double local_temperature;
   double imposed_gradient =
@@ -35,7 +37,12 @@ void apply_shiftY_local(struct fields* local_grid, struct csle* local_cscl,
 
   for (x = 0; x < mpiparam.rows_x; x++) {
     for (z = 0; z < mpiparam.rows_z; z++) {
-      for (y = 0; y < mpiparam.rows_y-shift_cells; y++) {
+      /*
+       * Shift only physical rows.  rows_y includes one ghost row at each
+       * boundary; treating the upper ghost as physical used to refill one
+       * fewer physical row than was removed.
+       */
+      for (y = first_y; y <= last_y-shift_cells; y++) {
         dst = y + mpiparam.rows_y*(z + mpiparam.rows_z*x);
         src = (y + shift_cells)
               + mpiparam.rows_y*(z + mpiparam.rows_z*x);
@@ -43,8 +50,7 @@ void apply_shiftY_local(struct fields* local_grid, struct csle* local_cscl,
         local_cscl[dst] = local_cscl[src];
       }
 
-      for (y = mpiparam.rows_y-shift_cells;
-           y < mpiparam.rows_y; y++) {
+      for (y = last_y-shift_cells+1; y <= last_y; y++) {
         dst = y + mpiparam.rows_y*(z + mpiparam.rows_z*x);
         local_temperature =
             temperature_gradientY.base_temp
@@ -70,6 +76,18 @@ void apply_shiftY_local(struct fields* local_grid, struct csle* local_cscl,
           }
         }
       }
+
+      /* Restore no-flux y ghosts immediately after the host-side shift. */
+      local_grid[mpiparam.rows_y*(z + mpiparam.rows_z*x)] =
+          local_grid[first_y + mpiparam.rows_y*(z + mpiparam.rows_z*x)];
+      local_cscl[mpiparam.rows_y*(z + mpiparam.rows_z*x)] =
+          local_cscl[first_y + mpiparam.rows_y*(z + mpiparam.rows_z*x)];
+      local_grid[(mpiparam.rows_y-1)
+                 + mpiparam.rows_y*(z + mpiparam.rows_z*x)] =
+          local_grid[last_y + mpiparam.rows_y*(z + mpiparam.rows_z*x)];
+      local_cscl[(mpiparam.rows_y-1)
+                 + mpiparam.rows_y*(z + mpiparam.rows_z*x)] =
+          local_cscl[last_y + mpiparam.rows_y*(z + mpiparam.rows_z*x)];
     }
   }
 }
