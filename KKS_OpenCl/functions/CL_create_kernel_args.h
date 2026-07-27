@@ -572,6 +572,10 @@ void CL_create_kernel_args() {
 
   ret = clSetKernelArg(ker_addNoise, 0, sizeof(cl_mem), &d_gridinfomN);
   ret = clSetKernelArg(ker_addNoise, 1, sizeof(cl_mem), &d_pfmdat);
+  /* addNoise needs the absolute step to seed its RNG; without it the "noise"
+     is a fixed spatial pattern replayed every step. d_tstep is written each
+     step in CL_Solve_phi_com_Function_F_*.h BEFORE the addNoise enqueue. */
+  ret = clSetKernelArg(ker_addNoise, 2, sizeof(cl_mem), &d_tstep);
 
   ret = clSetKernelArg(ker_copy_New_To_Old, 0, sizeof(cl_mem), &d_gridinfomO);
   ret = clSetKernelArg(ker_copy_New_To_Old, 1, sizeof(cl_mem), &d_gridinfomN);
