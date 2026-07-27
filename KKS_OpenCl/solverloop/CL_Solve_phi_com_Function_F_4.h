@@ -15,6 +15,13 @@ void CL_Solve_phi_com_Function_F_4() {
   }
 
   if ( (t > tNoiseStart) && NOISE_PHASEFIELD ) {
+    /* One line, once, so a run's log records that noise was actually applied
+       and with what amplitude. The repaired kernel is silent otherwise. */
+    if ( (rank == MASTER) && (t == tNoiseStart + 1) ) {
+      printf("addNoise active from t=%ld, Amp_Noise_Phase=%.6e\n",
+             t, pfmdat.NoiseFac);
+      fflush(stdout);
+    }
     ret = clEnqueueNDRangeKernel(cmdQ, ker_addNoise, work_dim, NULL, globaldim, NULL, 0, NULL, NULL);
     if (ret!=CL_SUCCESS) {
       printf("ker_addNoise enq problem  %d\n",ret);

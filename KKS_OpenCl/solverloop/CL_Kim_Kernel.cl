@@ -6830,60 +6830,97 @@ __kernel void apply_BC_com_xn_periodic(__global struct fields *gridinfo, __const
     
 }
 
-__kernel void addNoise(__global struct fields *gridinfo, __constant struct pfmval *pfmdat) {
-  
-  int i;
-  int j;
-  int k;
-  int nx;
-  int ny;
-  int nz;
-  int index;
-  int is, js, ip;
-  
-  j = get_global_id(1);
-  i = get_global_id(0);
-  
-  nx = pfmdat->Nx;
-  ny = pfmdat->Ny;
-  index = (i*ny + j);
+/*
+ * Phase-field noise.
+ *
+ * The MicroSim 3.0 version of this kernel (commit dda452f) could not perturb a
+ * planar front, for three independent reasons, all fixed here:
+ *
+ *   1. The increment was multiplied by the phase index `ip`, so for ip = 0 --
+ *      which is the SOLID when NUMPHASES = 2 -- it was identically zero. The
+ *      interface therefore stayed bit-exactly flat. Measured on an Al-Si
+ *      directional case: interface amplitude 0.000000 -> -0.000000 um over
+ *      20000 steps.
+ *   2. Each phase was perturbed independently, so sum(phi) = 1 was violated
+ *      every time the kernel touched a cell.
+ *   3. The pseudo-random value was a pure function of the work-item ids and
+ *      the linear index, with no timestep input and no carried state. It was
+ *      therefore a fixed spatial pattern replayed identically on every step --
+ *      a systematic bias rather than a noise process. Fixing 1 and 2 without
+ *      this would still not give thermal noise.
+ *
+ * The rewrite is two-phase only. `npha` is a compile-time #define
+ * (solverloop/defines.h), so the guard below costs nothing at runtime and the
+ * kernel simply does nothing for NUMPHASES != 2 rather than doing it wrong.
+ */
+__kernel void addNoise(__global struct fields *gridinfo,
+                       __constant struct pfmval *pfmdat,
+                       __global long *tstep) {
 
-  double minr = -1.0;
-  double maxr = 1.0;
-  double rt, noise;
-  
-  for ( ip = 0; ip < npha; ip++ ) { 
+  int x, y, z, ny, nz, index;
+  double p0, p1, s, envelope, u, n0;
+  ulong h;
 
-    if ( ( gridinfo[index].phi[ip] > 0.1 ) && ( gridinfo[index].phi[ip] < 0.5 ) ) { 
-      unsigned long x = get_local_id(0);
-      unsigned long y = get_local_id(1);
-      unsigned long z = get_global_id(0);
-      unsigned long w = get_global_id(1);
-      
-      ulong t = x ^ (x << 11);
-      x = y;
-      y = z;
-      z = w;
-      w=index;
-      w = w ^ (w >> 51) ^ (t ^ (t >> 8));
-      rt = w%2222;
-      noise = minr + rt/3333 * (maxr - minr + 1);
-      
-      //gridinfo[index].phi[ip] = gridinfo[index].phi[ip] - ( pfmdat->NoiseFac * noise );
-      
-      gridinfo[index].phi[ip] = gridinfo[index].phi[ip] - ( pfmdat->NoiseFac * noise ) * gridinfo[index].phi[ip] * ( 1.0 - gridinfo[index].phi[ip] ) * ip / (npha*npha);
-      
-    }
-    
-    if (gridinfo[index].phi[ip] < 0.0) {
-      gridinfo[index].phi[ip] = 0.0;
-    }
-    if (gridinfo[index].phi[ip] > 1.0) {
-      gridinfo[index].phi[ip] = 1.0;
-    }
-
+  if ( npha != 2 ) {
+    return;
   }
 
+  /*
+   * FOURTH upstream defect, and the one that hid the others: this kernel used
+   *     i = get_global_id(0); j = get_global_id(1); index = i*ny + j;
+   * but the launch geometry is globaldim = {ny, nz, nx} with work_dim = 3
+   * (CL_initialize_variables.h:231-233), so dim 0 is Y, dim 1 is Z and X was
+   * never read. Every other kernel -- see copy_New_To_Old -- uses
+   *     index = y + ny*(z + x*nz);
+   * With ny=1888, nz=1, nx=800 the old formula gave index = y*1888, which
+   * addresses the single bottom row (y'=0, x'=y) for y < 800 -- bulk solid,
+   * where there is no interface to perturb -- and runs PAST THE END of the
+   * 1510400-cell buffer for y >= 800. The upstream version clamps
+   * unconditionally, so those are out-of-bounds WRITES.
+   */
+  y  = get_global_id(0);
+  z  = get_global_id(1);
+  x  = get_global_id(2);
+  ny = get_global_size(0);
+  nz = get_global_size(1);
+  index = y + ny*(z + x*nz);
+
+  p0 = gridinfo[index].phi[0];
+  p1 = gridinfo[index].phi[1];
+
+  /*
+   * phi0*phi1 vanishes in both bulk phases and peaks at the interface. This
+   * replaces the old (0.1, 0.5) window, which was asymmetric: for a two-phase
+   * interface phi[0] in (0.1,0.5) implies phi[1] in (0.5,0.9), so the window
+   * only ever caught one side.
+   */
+  envelope = p0 * p1;
+  if ( envelope <= 0.0 ) {
+    return;
+  }
+
+  /* splitmix64 finalizer over (cell, absolute step). */
+  h  = (ulong)index * 0x9E3779B97F4A7C15UL;
+  h ^= (ulong)(*tstep) * 0xBF58476D1CE4E5B9UL;
+  h ^= h >> 30; h *= 0xBF58476D1CE4E5B9UL;
+  h ^= h >> 27; h *= 0x94D049BB133111EBUL;
+  h ^= h >> 31;
+  /* Top 53 bits -> uniform in [0,1), then map to [-1,1). */
+  u = 2.0 * ( (double)(h >> 11) / 9007199254740992.0 ) - 1.0;
+
+  /*
+   * Conserved update: whatever leaves one phase enters the other. Clamping is
+   * done on n0 against the PRE-EXISTING sum s, not against 1.0, so the kernel
+   * preserves whatever sum the field already had instead of silently imposing
+   * normalisation.
+   */
+  s  = p0 + p1;
+  n0 = p0 + pfmdat->NoiseFac * u * envelope;
+  if ( n0 < 0.0 ) { n0 = 0.0; }
+  if ( n0 > s )   { n0 = s;   }
+
+  gridinfo[index].phi[0] = n0;
+  gridinfo[index].phi[1] = s - n0;
 }
 
 __kernel void copy_New_To_Old(__global struct fields *gridinfoO, __global struct fields *gridinfo, __constant struct pfmval *pfmdat) {
