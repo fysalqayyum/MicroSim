@@ -121,6 +121,55 @@ static inline double f4_table_C(__global const struct propmatf4spline *table,
                    (double)(lower-start)+weight);
 }
 
+/*
+ * Equilibrium compositions at the LOCAL temperature, for the pair
+ * (solid `phase`, liquid).  Added for the TAU fix: TAU's `deltac`
+ * used to come from the frozen host-side `pfmdat->c_eq` (fixed at
+ * T = 899.604509 K) while the curvature d2g/dc2 in the same expression was
+ * already evaluated at the local T.  Since zeta ~ deltac^2 and the liquidus
+ * carries c_liq from 0.0530 to 0.1207 mole fraction Si across the freezing
+ * range, that inconsistency made TAU too small -- and hence the interface too
+ * mobile -- by up to 5.03x at the eutectic isotherm.
+ * `phase` must satisfy phase < npha-1; the liquid slot is never filled.
+ */
+static inline double f4_table_ceq_liq(__global const struct propmatf4spline *table,
+                         __constant struct pfmval *pfmdat,
+                         double temperature, int phase, int component) {
+  int lower;
+  int start;
+  double weight;
+  f4_table_position(temperature, pfmdat, &lower, &weight);
+  start = lower-1;
+  if (start < 0) start = 0;
+  if (start > pfmdat->f4_table_count-4) {
+    start = (int)pfmdat->f4_table_count-4;
+  }
+  return f4_cubic4(table[start].ceq_liq[phase][component],
+                   table[start+1].ceq_liq[phase][component],
+                   table[start+2].ceq_liq[phase][component],
+                   table[start+3].ceq_liq[phase][component],
+                   (double)(lower-start)+weight);
+}
+
+static inline double f4_table_ceq_sol(__global const struct propmatf4spline *table,
+                         __constant struct pfmval *pfmdat,
+                         double temperature, int phase, int component) {
+  int lower;
+  int start;
+  double weight;
+  f4_table_position(temperature, pfmdat, &lower, &weight);
+  start = lower-1;
+  if (start < 0) start = 0;
+  if (start > pfmdat->f4_table_count-4) {
+    start = (int)pfmdat->f4_table_count-4;
+  }
+  return f4_cubic4(table[start].ceq_sol[phase][component],
+                   table[start+1].ceq_sol[phase][component],
+                   table[start+2].ceq_sol[phase][component],
+                   table[start+3].ceq_sol[phase][component],
+                   (double)(lower-start)+weight);
+}
+
 
 __kernel void SolverCsClEq_F2(__global struct fields *gridinfoO, __global struct csle *cscl, __constant struct pfmval *pfmdat, __constant struct pfmpar *pfmvar, __global double *temp, __global int *tstep) {
 
@@ -1931,7 +1980,11 @@ __kernel void SolverPhi_F4_smooth(__global struct fields *gridinfoO, __global st
     // Calculate TAU
     for ( ip1 = 0; ip1 < npha-1; ip1++ ) {
       for ( is = 0; is < nsol; is++ ) {
-        deltac[is] = pfmdat->c_eq[(npha-1)*npha+(npha-1)][is] - pfmdat->c_eq[ip1*npha+ip1][is];
+        /* Local-temperature miscibility gap, consistent with the
+         * ddgedcdc above which is already evaluated at Ti.
+         * See f4_table_ceq_liq for why the frozen c_eq was wrong. */
+        deltac[is] = f4_table_ceq_liq(propf4spline, pfmdat, Ti, ip1, is)
+                   - f4_table_ceq_sol(propf4spline, pfmdat, Ti, ip1, is);
       }
       multiply_nsol(InvD[npha-1], deltac, Ddc);
       multiply_nsol(ddgedcdc[npha-1], Ddc, ddgDdc);
@@ -2328,7 +2381,11 @@ __kernel void SolverPhi_F4(__global struct fields *gridinfoO, __global struct fi
     // Calculate TAU
     for ( ip1 = 0; ip1 < npha-1; ip1++ ) {
       for ( is = 0; is < nsol; is++ ) {
-        deltac[is] = pfmdat->c_eq[(npha-1)*npha+(npha-1)][is] - pfmdat->c_eq[ip1*npha+ip1][is];
+        /* Local-temperature miscibility gap, consistent with the
+         * ddgedcdc above which is already evaluated at Ti.
+         * See f4_table_ceq_liq for why the frozen c_eq was wrong. */
+        deltac[is] = f4_table_ceq_liq(propf4spline, pfmdat, Ti, ip1, is)
+                   - f4_table_ceq_sol(propf4spline, pfmdat, Ti, ip1, is);
       }
       multiply_nsol(InvD[npha-1], deltac, Ddc);
       multiply_nsol(ddgedcdc[npha-1], Ddc, ddgDdc);

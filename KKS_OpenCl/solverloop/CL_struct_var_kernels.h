@@ -119,6 +119,9 @@ struct propmatf4spline {
   double A[npha][nsol][nsol];
   double B[npha][nsol];
   double C[npha];
+  /* Device mirror. MUST stay byte-identical to functions/CL_global_vars.h. */
+  double ceq_liq[npha][nsol];
+  double ceq_sol[npha][nsol];
 };
 struct symmetric_tensor {
   double xx;

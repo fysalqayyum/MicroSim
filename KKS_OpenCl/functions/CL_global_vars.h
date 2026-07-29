@@ -136,6 +136,17 @@ struct propmatf4spline {
   double A[npha][nsol][nsol];
   double B[npha][nsol];
   double C[npha];
+  /*
+   * Equilibrium compositions at this table temperature for the pair
+   * (solid phase ip, liquid).  Added so the kernel's TAU can use
+   * the LOCAL-temperature miscibility gap instead of the frozen `ceq` read
+   * from Input.in at T = 899.604509 K.  Only ip < npha-1 is filled; the
+   * liquid slot is unused and left zero.
+   * MUST stay byte-identical to the mirror in
+   * solverloop/CL_struct_var_kernels.h.
+   */
+  double ceq_liq[npha][nsol];
+  double ceq_sol[npha][nsol];
 };
 
 

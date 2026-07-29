@@ -51,6 +51,7 @@
 #include "functions/Temperature_gradient.h"
 #include "functions/shift.h"
 #include "functions/CL_Shift.h"
+#include "functions/farfield_guard.h"
 #include "solverloop/serialinfo_xy.h"
 #include "solverloop/mpi_xy.h"
 #include "solverloop/initialize_functions_solverloop.h"
@@ -276,6 +277,11 @@ int main(int argc, char * argv[]) {
       fclose(fp);
       if (rank==MASTER)
       printf("Written time step = %ld\n", t + STARTTIME);
+      /* Far-field superheat check.  gridinfomN is already fresh on the host
+       * from the CL_DeviceToHost() above, so this costs one pass over the top
+       * FARFIELD_BAND rows.  Aborts the run rather than let it bank
+       * undercooling for hours before failing. */
+      farfield_guard_check(t + STARTTIME);
     }
     if (t%time_output == 0 ) {
      CL_Global_Max_Min();

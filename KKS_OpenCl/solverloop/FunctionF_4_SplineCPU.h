@@ -14,6 +14,7 @@ void FunctionF_4_SplineCPU(struct propmatf4spline *table) {
   double max_relative_A = 0.0;
   double max_relative_B = 0.0;
   double max_relative_C = 0.0;
+  double max_relative_ceq = 0.0;
 
   if (f4_table_count < 2 || f4_table_dT <= 0.0) {
     fprintf(stderr,
@@ -36,6 +37,30 @@ void FunctionF_4_SplineCPU(struct propmatf4spline *table) {
         table[it].B[ip][is] = function_B(sample_temperature, is, ip);
       }
       table[it].C[ip] = function_C(sample_temperature, ip);
+
+      /*
+       * Tabulate the equilibrium compositions at this temperature, from the
+       * same spline_ES that function_B and function_C already use, so the
+       * kernel's TAU can stop using the frozen `ceq`.  Index [is][1] is the
+       * liquidus branch and [is][0] the solidus branch, exactly as in
+       * function_F_04_function_B.  spline_ES is defined for the SOLID phases
+       * only, so the liquid slot stays zero and must never be read.
+       */
+      if (ip != npha-1) {
+        for (is=0; is<nsol; is++) {
+          table[it].ceq_liq[ip][is] = gsl_spline_eval(
+              spline_ES[thermo_phase[ip]][is][1], sample_temperature,
+              acc_ES[thermo_phase[ip]][is][1]);
+          table[it].ceq_sol[ip][is] = gsl_spline_eval(
+              spline_ES[thermo_phase[ip]][is][0], sample_temperature,
+              acc_ES[thermo_phase[ip]][is][0]);
+        }
+      } else {
+        for (is=0; is<nsol; is++) {
+          table[it].ceq_liq[ip][is] = 0.0;
+          table[it].ceq_sol[ip][is] = 0.0;
+        }
+      }
     }
   }
 
@@ -86,6 +111,36 @@ void FunctionF_4_SplineCPU(struct propmatf4spline *table) {
         double error = fabs(linear-direct)/fmax(fabs(direct), 1.0);
         if (error > max_relative_C) max_relative_C = error;
       }
+      /*
+       * Same midpoint audit for the tabulated equilibrium compositions, so a
+       * bad ceq table cannot reach TAU silently.  Relative error here, not
+       * the fmax(...,1.0) form used for A/B/C -- these are mole fractions of
+       * order 1e-2, so an absolute-ish denominator would hide everything.
+       */
+      if (ip != npha-1) {
+        for (is=0; is<nsol; is++) {
+          double direct_liq = gsl_spline_eval(
+              spline_ES[thermo_phase[ip]][is][1], interp_temperature,
+              acc_ES[thermo_phase[ip]][is][1]);
+          double direct_sol = gsl_spline_eval(
+              spline_ES[thermo_phase[ip]][is][0], interp_temperature,
+              acc_ES[thermo_phase[ip]][is][0]);
+          double linear_liq = f4_cubic4_host(
+              table[start].ceq_liq[ip][is], table[start+1].ceq_liq[ip][is],
+              table[start+2].ceq_liq[ip][is], table[start+3].ceq_liq[ip][is],
+              coordinate);
+          double linear_sol = f4_cubic4_host(
+              table[start].ceq_sol[ip][is], table[start+1].ceq_sol[ip][is],
+              table[start+2].ceq_sol[ip][is], table[start+3].ceq_sol[ip][is],
+              coordinate);
+          double e_liq = fabs(linear_liq-direct_liq)
+                         /fmax(fabs(direct_liq), 1.0e-12);
+          double e_sol = fabs(linear_sol-direct_sol)
+                         /fmax(fabs(direct_sol), 1.0e-12);
+          if (e_liq > max_relative_ceq) max_relative_ceq = e_liq;
+          if (e_sol > max_relative_ceq) max_relative_ceq = e_sol;
+        }
+      }
     }
   }
 
@@ -103,8 +158,26 @@ void FunctionF_4_SplineCPU(struct propmatf4spline *table) {
     printf("F4_THERMO_TABLE count=%ld Tmin=%.12g Tmax=%.12g dT=%.12g\n",
            f4_table_count, f4_table_Tmin, f4_table_Tmax, f4_table_dT);
     printf("F4_THERMO_INTERP max_relative_A=%.12e "
-           "max_relative_B=%.12e max_relative_C=%.12e\n",
-           max_relative_A, max_relative_B, max_relative_C);
+           "max_relative_B=%.12e max_relative_C=%.12e "
+           "max_relative_ceq=%.12e\n",
+           max_relative_A, max_relative_B, max_relative_C,
+           max_relative_ceq);
+    /*
+     * TAU consistency trace.  deltac = ceq_liq - ceq_sol at the local T; this
+     * prints it at both ends of the table next to the frozen value TAU used
+     * before this fix, so the size of the correction is visible in every log.
+     */
+    for (ip=0; ip<npha-1; ip++) {
+      double dc_lo = table[0].ceq_liq[ip][0]-table[0].ceq_sol[ip][0];
+      double dc_hi = table[f4_table_count-1].ceq_liq[ip][0]
+                     -table[f4_table_count-1].ceq_sol[ip][0];
+      double dc_frozen = ceq[npha-1][npha-1][0]-ceq[ip][ip][0];
+      printf("F4_TAU_DELTAC phase=%d dc(Tmin=%.6g)=%.12e "
+             "dc(Tmax=%.6g)=%.12e dc_frozen=%.12e "
+             "tau_ratio_at_Tmin=%.6g\n",
+             ip, f4_table_Tmin, dc_lo, f4_table_Tmax, dc_hi, dc_frozen,
+             (dc_frozen != 0.0) ? (dc_lo/dc_frozen)*(dc_lo/dc_frozen) : 0.0);
+    }
     for (ip=0; ip<npha; ip++) {
       printf("F4_THERMO_PHASE phase=%d "
              "A00={%.12e,%.12e,%.12e} "
