@@ -1,0 +1,10 @@
+# Fixed-temperature KKS_CuFFT thermodynamic fragment.
+# Phase 0 = FCC_A1; phase 1 = LIQUID; independent component = Si.
+# f0 = H/2 in J/mol. KKS divides f0 by Vm; supply a validated Vm in m^3/mol.
+# T = 860 K. This is not a temperature-dependent reader.
+f0 = {0,281589.3032163769};
+f0 = {1,48973.7041940095};
+ceq = {0,0,0.01299323923154115};
+ceq = {0,1,0.1080164132301194};
+ceq = {1,0,0.01299323923154115};
+ceq = {1,1,0.1080164132301194};

@@ -1,0 +1,102 @@
+{
+  "source": {
+    "filename": "COST507_MicroSim_compatible.tdb",
+    "sha256": "bfba3f8bae2b8f086792cb2ec758b70eff0ff5c2064bfe5394874f489d8a738d",
+    "redistributed": true,
+    "upstream_url": "https://raw.githubusercontent.com/pycalphad/pycalphad/develop/pycalphad/tests/databases/COST507.tdb",
+    "upstream_sha256": "6565f4d67695fbbf779d68b9eeeb83e86e44a1a3dde9bafd612d99daffb9c34d",
+    "projection": "Nomenclature-compatible COST507 followed by in-memory LIQUID/FCC_A1/SI_DIAMOND_A4 projection",
+    "compatibility_edits": [
+      "CONST expanded to CONSTITUENT",
+      "LIQUID:L phase alias changed to LIQUID",
+      "DIAMOND_A4 phase alias changed to SI_DIAMOND_A4"
+    ],
+    "reuse_terms": "TDB header permits free use at own risk; European Commission COST 507 report permits reproduction with source acknowledgement."
+  },
+  "software": {
+    "python": "3.11.15",
+    "pycalphad": "0.11.2",
+    "numpy": "2.4.6",
+    "pandas": "3.0.5",
+    "scipy": "1.17.1"
+  },
+  "parser_warnings": [
+    "Type definition character X is used by retained phases but has no corresponding TYPE_DEFINITION line.",
+    "Type definition character R is used by LIQUID but has no corresponding TYPE_DEFINITION line.",
+    "Type definition character F is used by FCC_A1 but has no corresponding TYPE_DEFINITION line."
+  ],
+  "basis_and_units": {
+    "composition": "mole fraction Si; Al is the dependent solvent",
+    "hessian": "d2(G_m)/d(x_Si)^2 = d(mu_Si-mu_Al)/d(x_Si), J/mol",
+    "kks_f0": "H/2, J/mol; KKS_CuFFT divides by Vm",
+    "temperature": "K",
+    "molar_masses_g_per_mol": {
+      "Al": 26.98154,
+      "Si": 28.0855
+    }
+  },
+  "requested_temperature_range_K": [
+    850.0,
+    930.0
+  ],
+  "stable_two_phase_temperature_range_written_K": [
+    850.1497982085,
+    930.0
+  ],
+  "eutectic": {
+    "T_K": 850.1497982085261,
+    "x_Si_FCC_A1": 0.01488551278280571,
+    "x_Si_LIQUID": 0.12070131329646805,
+    "x_Si_SI_DIAMOND_A4": 0.9999991035006369,
+    "wt_percent_Si_FCC_A1": 1.5485128053721935,
+    "wt_percent_Si_LIQUID": 12.502242528422949,
+    "wt_percent_Si_SI_DIAMOND_A4": 99.99991387394108,
+    "common_tangent_max_residual_J_per_mol": 3.9314181776717305e-07
+  },
+  "validation": {
+    "reference_targets": {
+      "T_K": 850.0,
+      "wt_percent_Si_LIQUID": 12.6,
+      "wt_percent_Si_FCC_A1": 1.6
+    },
+    "absolute_errors": {
+      "temperature_K": 0.14979820852613557,
+      "liquid_wt_percent_Si": 0.09775747157705084,
+      "solid_wt_percent_Si": 0.0514871946278066
+    },
+    "tolerances": {
+      "temperature_K": 2.0,
+      "liquid_wt_percent_Si": 0.2,
+      "solid_wt_percent_Si": 0.2
+    },
+    "natural_cubic_midpoint_max_relative_errors": {
+      "x_Si_FCC_A1": 1.2991328519951236e-05,
+      "x_Si_LIQUID": 3.3064153647928914e-05,
+      "H_FCC_A1_J_per_mol": 0.00792171486113419,
+      "H_LIQUID_J_per_mol": 0.007712790528855238
+    },
+    "natural_cubic_midpoint_relative_tolerance": 0.01,
+    "passed": true
+  },
+  "microsim": {
+    "grand_potential_mpi": {
+      "Function_F": 4,
+      "NUM_THERMO_PHASES": 2,
+      "tdb_phases": [
+        "FCC_A1",
+        "LIQUID"
+      ],
+      "phase_order_requirement": "LIQUID must be the final simulation phase",
+      "csv_directory": "tdbs_encrypted"
+    },
+    "kks_cufft": {
+      "mapping": "isothermal f0=H/2 and diagonal ceq",
+      "temperature_K": 860.0,
+      "limitation": "Current KKS_CuFFT has no TDB/CSV thermodynamic reader and no temperature-dependent directional-solidification free energy."
+    }
+  },
+  "mobility": {
+    "extracted": false,
+    "reason": "A thermodynamic TDB supplies Gibbs models, not atomic mobilities or phase diffusivities; a separately licensed mobility database or citable experimental diffusion model is required."
+  }
+}

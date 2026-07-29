@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=ds_run
+#SBATCH --partition=gpu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:1
+#SBATCH --time=12:00:00
+#SBATCH --output=ds-%j.out
+#
+# ============================================================================
+# Directional-solidification run for MicroSim KKS_OpenCl, Function_F = 4.
+#
+# THIS IS A TEMPLATE. Every site path is a variable with no default; set them
+# for your own cluster. Nothing here is specific to any machine or account.
+#
+# The value of this file is not the parameter values -- it is the GUARD
+# STRUCTURE. A phase-field run can consume a full wall-clock allocation and
+# produce physically meaningless output while passing every conventional check
+# (sum(phi) = 1 to 1e-13, no non-finite values, exact mass audit). The guards
+# below refuse to start, or abort early, on conditions that have actually cost
+# real compute. See pf-toolkit/LESSONS.md for the reasoning behind each.
+#
+# Submit one leg at a time, chaining with a dependency:
+#   sbatch --export=ALL,LEG=1 directional_solidification.slurm
+#   sbatch --dependency=afterok:<prev> --export=ALL,LEG=2 directional_solidification.slurm
+#
+# Required exports:
+#   LEG           leg number, 1-based
+#   SOLVER_DIR    directory containing the built `microsim_kks_opencl`
+# Optional:
+#   MPI_ROOT, GSL_ROOT, SHIFTJ_OVERRIDE, SAVET_OVERRIDE,
+#   STEPS_PER_LEG_OVERRIDE, TARGET_STEPS_OVERRIDE, CONTAIN_MIN_OVERRIDE
+# ============================================================================
+set -euo pipefail
+
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+if [[ -n "${MPI_ROOT:-}" ]]; then
+  export PATH="${MPI_ROOT}/bin:${PATH}"
+  export LD_LIBRARY_PATH="${MPI_ROOT}/lib:${LD_LIBRARY_PATH:-}"
+fi
+if [[ -n "${GSL_ROOT:-}" ]]; then
+  export LD_LIBRARY_PATH="${GSL_ROOT}/lib:${LD_LIBRARY_PATH:-}"
+fi
+export OMPI_MCA_btl="self,tcp"
+export MPLCONFIGDIR="/tmp/mpl-${SLURM_JOB_ID:-0}"
+
+RUN_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
+SOLVER_DIR="${SOLVER_DIR:?export SOLVER_DIR=/path/to/KKS_OpenCl}"
+SOLVER_BIN="${SOLVER_DIR}/microsim_kks_opencl"
+LEG="${LEG:?Submit with LEG exported, e.g. --export=ALL,LEG=1}"
+
+# ---------------------------------------------------------------------------
+# Physical and numerical parameters.
+#
+# These are a self-consistent Al-5.5wt%Si set at 13.333 mm/s, included so the
+# template runs as written. REPLACE THEM for your alloy and conditions.
+#
+# dt must satisfy dt < dx^2/(4D); this set sits at 0.431 of that limit. Larger
+# steps produced millions of non-finite cells in testing.
+# epsilon IS the physical interface width in this solver, not a multiple of it.
+# ---------------------------------------------------------------------------
+DT=2.0e-9                    # s
+VELO=1.3333e-2               # m/s, pulling velocity
+DX=1.0771e-8                 # m, cell size
+EPS=6.4623e-8                # m, interface width (W/dx = 6.0)
+GRAD=1.1e6                   # K/m, thermal gradient
+DAB=0.01                     # anisotropy strength
+ROT_Z=45                     # deg, crystal rotation about z
+NOISE_AMP=0.001              # Amp_Noise_Phase; 1.0 is unstable
+BASE_ROW=20
+BASE_T=884.367547            # K; places the initial flat interface 15.000 K undercooled
+NX=792
+NY=2240
+SHIFTJ="${SHIFTJ_OVERRIDE:-500}"
+SAVET="${SAVET_OVERRIDE:-25000}"
+STEPS_PER_LEG="${STEPS_PER_LEG_OVERRIDE:-1500000}"
+TARGET_STEPS="${TARGET_STEPS_OVERRIDE:-6000000}"
+CONTAIN_MIN="${CONTAIN_MIN_OVERRIDE:-1664}"   # measured solute containment depth, cells
+PREFIX="ds_run"
+CASE_DIR="${RUN_DIR}/${PREFIX}"
+
+# ---------------------------------------------------------------------------
+# Runtime guard configuration (functions/farfield_guard.h).
+# Set the alloy constants explicitly: the compiled-in fallbacks are Al-Si.
+# ---------------------------------------------------------------------------
+export FARFIELD_T_LIQ_C0="${FARFIELD_T_LIQ_C0:-899.604509}"
+export FARFIELD_M_L="${FARFIELD_M_L:--6.507}"
+export FARFIELD_C0_MOL="${FARFIELD_C0_MOL:-0.052953}"
+export FARFIELD_BAND="${FARFIELD_BAND:-8}"
+export SHORTBOX_DC_MAX_REL="${SHORTBOX_DC_MAX_REL:-0.02}"
+export SHORTBOX_TIP_MARGIN="${SHORTBOX_TIP_MARGIN:-200}"
+# A legitimate transient overshoot can reach ~1.6 x V, so a 2.0 limit may abort
+# on real physics. 3.0 still catches a genuine runaway (observed at 15 x V).
+export SHORTBOX_VTIP_FACTOR="${SHORTBOX_VTIP_FACTOR:-3.0}"
+
+# ---------------------------------------------------------------------------
+# Pre-flight guards, each with a distinct exit code so a failure is diagnosable
+# from the scheduler's accounting alone.
+#
+# NOTE on the binary checks: NEVER end a pipeline in `grep -q` under
+# `set -o pipefail`. grep -q exits at the first match, nm dies of SIGPIPE, and
+# pipefail reports 141 -- so the check can never pass and silently refuses every
+# binary. Use `grep -c`, which drains stdin. Distinguish "feature absent" from
+# "detector could not run": they need different exit codes.
+# ---------------------------------------------------------------------------
+[[ -r "${SOLVER_BIN}" ]] || {
+  echo "REFUSING: solver binary not readable: ${SOLVER_BIN}" >&2
+  echo "  This is a filesystem or node fault, NOT a missing feature." >&2
+  exit 20; }
+
+[[ $(nm "${SOLVER_BIN}" 2>/dev/null | grep -c farfield_guard_check) -gt 0 ]] \
+  || grep -q farfield_guard_check "${SOLVER_BIN}" || {
+  echo "REFUSING: binary has no runtime validity guards." >&2; exit 18; }
+
+grep -q SHORTBOX_DC_MAX_REL "${SOLVER_BIN}" || {
+  echo "REFUSING: binary predates the short-box guards." >&2; exit 24; }
+
+grep -q F4_TAU_DELTAC "${SOLVER_BIN}" || {
+  echo "REFUSING: binary predates the temperature-dependent TAU fix." >&2
+  echo "  Interfaces will be too mobile in the deep mush. Rebuild." >&2; exit 30; }
+
+# A leg that is not an exact multiple of SAVET writes no final frame and so
+# cannot be restarted from.
+(( STEPS_PER_LEG % SAVET == 0 )) || {
+  echo "REFUSING: STEPS_PER_LEG ${STEPS_PER_LEG} is not a multiple of SAVET ${SAVET}." >&2
+  exit 11; }
+
+(( SHIFTJ > BASE_ROW )) || {
+  echo "REFUSING: Shiftj ${SHIFTJ} must exceed BASE_ROW ${BASE_ROW}." >&2; exit 31; }
+
+# The liquid above the tip must hold the solute boundary layer. With a no-flux
+# top this is the binding constraint -- NOT thermal headroom, because bulk
+# liquid is inert in this model and cannot nucleate however undercooled.
+# Measure the containment depth; do not assume D/V.
+LIQUID_ABOVE=$(( NY - SHIFTJ ))
+(( LIQUID_ABOVE >= CONTAIN_MIN )) || {
+  echo "REFUSING: only ${LIQUID_ABOVE} cells above the tip, need ${CONTAIN_MIN}." >&2
+  exit 28; }
+
+# ---------------------------------------------------------------------------
+# Case setup
+# ---------------------------------------------------------------------------
+mkdir -p "${CASE_DIR}/DATA"
+cd "${CASE_DIR}"
+
+START=$(( (LEG - 1) * STEPS_PER_LEG ))
+if (( LEG == 1 )); then RESTART=0; else RESTART=1; fi
+
+# NTIMESTEPS is RELATIVE TO THE LEG, not cumulative.
+sed -e "s|__MESH_X__|${NX}|g"        -e "s|__MESH_Y__|${NY}|g" \
+    -e "s|__DELTA_T__|${DT}|g"       -e "s|__NTIMESTEPS__|${STEPS_PER_LEG}|g" \
+    -e "s|__SAVET__|${SAVET}|g"      -e "s|__TRACK__|${PREFIX}|g" \
+    -e "s|__SHIFTJ__|${SHIFTJ}|g" \
+    "${RUN_DIR}/Input_resolved_alsi55.in.template" > Input.in
+
+echo "===== run configuration ====="
+echo "leg=${LEG}  start=${START}  steps=${STEPS_PER_LEG}  target=${TARGET_STEPS}  restart=${RESTART}"
+echo "mesh=${NX}x${NY}  Shiftj=${SHIFTJ}  SAVET=${SAVET}"
+echo "dx=${DX}  dt=${DT}  eps=${EPS}  G=${GRAD}  V=${VELO}"
+echo "dab=${DAB}  rot_z=${ROT_Z}  noise=${NOISE_AMP}  base_T=${BASE_T}"
+echo "liquid_above_tip=${LIQUID_ABOVE} (containment minimum ${CONTAIN_MIN})"
+echo "shortbox_vtip_factor=${SHORTBOX_VTIP_FACTOR}"
+echo "jobid=${SLURM_JOB_ID:-none}"
+sha256sum "${SOLVER_BIN}"
+
+# ---------------------------------------------------------------------------
+# Run. One MPI rank, one GPU.
+#
+# IMPORTANT: clBuildProgram failure only PRINTS -- it does not abort. Always
+# check the log for 'program build error' afterwards, or a broken kernel will
+# silently produce garbage for the whole allocation.
+# ---------------------------------------------------------------------------
+START_S=$(date +%s)
+set +e
+mpirun -np 1 "${SOLVER_BIN}" Input.in Filling.in "${PREFIX}" 1
+RC=$?
+set -e
+END_S=$(date +%s)
+
+ELAPSED=$(( END_S - START_S ))
+if (( ELAPSED > 0 )); then
+  echo "throughput: $(( STEPS_PER_LEG / ELAPSED )) steps/s over ${ELAPSED} s"
+fi
+
+echo "solver exit ${RC}"
+exit "${RC}"

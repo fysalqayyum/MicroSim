@@ -1,0 +1,104 @@
+# Resolved Al-5.5 wt.% Si, LMD-relevant condition. Placeholder tokens (double
+# underscore delimited) are substituted at submit time by the launch script,
+# which then asserts that none survive.
+#
+# Design basis (RESOLVED_RUN_DESIGN.md, 2026-07-26):
+#   dx = 10 nm, W(epsilon) = 60 nm  ->  W/rho = 0.206, W/dx = 6, rho/dx = 29 cells
+#   W/d0 = 13.1 (thin-interface valid), W*V/D = 0.128 (antitrapping valid)
+#   G = 1.1e6 K/m and V = 13.333 mm/s are DERIVED from the LMD process
+#   parameters via Rosenthal (Q=900 W, absorption 0.35, v=800 mm/min).
+#   lambda1 = 8.611 um -> nx = 864 spans exactly one primary spacing, periodic.
+DIMENSION = 2;
+MESH_X = __MESH_X__;
+MESH_Y = __MESH_Y__;
+MESH_Z = 1;
+DELTA_X = 1.0e-8;
+DELTA_Y = 1.0e-8;
+DELTA_Z = 1.0e-8;
+DELTA_t = __DELTA_T__;
+NUMPHASES = 2;
+NUMCOMPONENTS = 2;
+NTIMESTEPS = __NTIMESTEPS__;
+NSMOOTH = 10;
+SAVET = __SAVET__;
+STARTTIME = 0;
+RESTART = 0;
+numworkers = 1;
+COMPONENTS = {Si,Al};
+PHASES = {FCC_A1,LIQUID};
+GAMMA = {0.165};
+DIFFUSIVITY = {1,0,1.0e-13};
+DIFFUSIVITY = {1,1,6.25e-9};
+R = 8.314462618;
+V = 1.0e-5;
+ELASTICITY = 0;
+GRAIN_GROWTH = 0;
+LBM = 0;
+EIGEN_STRAIN = {0,0.0,0.0,0.0,0.0,0.0,0.0};
+EIGEN_STRAIN = {1,0.0,0.0,0.0,0.0,0.0,0.0};
+VOIGT_ISOTROPIC = {0,1.0,1.0,1.0};
+VOIGT_ISOTROPIC = {1,1.0,1.0,1.0};
+BOUNDARY = {phi,3,3,1,1,3,3};
+BOUNDARY = {mu,3,3,1,1,3,3};
+BOUNDARY = {c,3,3,1,1,3,3};
+BOUNDARY = {T,3,3,1,1,3,3};
+BOUNDARY_VALUE = {phi,0,0,0,0,0,0};
+BOUNDARY_VALUE = {mu,0,0,0,0,0,0};
+BOUNDARY_VALUE = {c,0,0,0,0,0,0};
+BOUNDARY_VALUE = {T,0,0,0,0,0,0};
+ISOTHERMAL = 0;
+BINARY = 1;
+TERNARY = 0;
+DILUTE = 0;
+T = 899.604509;
+TLiquidus = 899.604509;
+WRITEFORMAT = BINARY;
+WRITEHDF5 = 0;
+TRACK_PROGRESS = __TRACK__;
+# Interface width. THIS is the parameter the whole redesign turns on:
+# measured 10-90% phi thickness equals epsilon exactly.
+epsilon = 6.0e-8;
+tau = 1.31;
+Tau = {0.28};
+Function_anisotropy = 1;
+Anisotropy_type = 4;
+dab = {0.01};
+Rotation_matrix = {0,1,0,0,0};
+Function_W = 1;
+Gamma_abc = {};
+Shift = 1;
+Shiftj = __SHIFTJ__;
+Writecomposition = 1;
+Noise_phasefield = 0;
+Amp_Noise_Phase = 0.001;
+tNoiseStart = 10;
+Equilibrium_temperature = 899.604509;
+Filling_temperature = 899.604509;
+# {base_temp, DeltaT, Distance, gradient_OFFSET, velocity}
+#   G = DeltaT/Distance = 1100.0/1.0e-3 = 1.1e6 K/m
+#   velocity = 1.3333e-2 m/s = 13.333 mm/s (LMD scan speed at the pool tail)
+#   base_temp puts the initial flat interface (y = 20 cells) 15 K below the
+#   liquidus:  base = 899.604509 - 15 - G*20*dx = 884.384509
+Tempgrady = {884.384509,1100.0,1.0e-3,0,1.3333e-2};
+Function_F = 4;
+A = {0,1};
+A = {1,1};
+ceq = {0,0,0.005778944225};
+ceq = {0,1,0.052952583584};
+ceq = {1,1,0.052952583584};
+ceq = {1,0,0.005778944225};
+cfill = {0,0,0.005778944225};
+cfill = {0,1,0.052952583584};
+cfill = {1,1,0.052952583584};
+cfill = {1,0,0.005778944225};
+c_guess = {0,0,0.005778944225};
+c_guess = {0,1,0.052952583584};
+c_guess = {1,1,0.052952583584};
+c_guess = {1,0,0.005778944225};
+num_thermo_phases = 2;
+tdbfname = COST507_upstream_pycalphad.tdb;
+tdb_phases = {FCC_A1,LIQUID};
+phase_map = {FCC_A1,LIQUID};
+atr = 1;
+CLplatformID = 0;
+CLdeviceID = 0;
