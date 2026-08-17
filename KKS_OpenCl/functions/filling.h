@@ -671,11 +671,50 @@ void fill_composition_cube(struct fields* gridinfo) {
   double c[NUMCOMPONENTS-1];
   double chemical_potential;
   long PHASE_FILLED=0;
-  
+  double fill_GRADIENT=0.0, fill_BASE_POS=0.0, fill_temp_bottom=0.0;
+  double T_local;
+
+  /*
+   * The stored field is compi (the diffusion potential), NOT the composition:
+   * every writer reconstructs composition as c_mu(compi, T_local, ...) using the
+   * cell's LOCAL temperature (read_write_VTK.h, read_write.h, !ISOTHERMAL branch).
+   * Initialising compi from a single global Teq therefore does not produce a
+   * uniform melt in a thermal gradient.  For the liquid, function_B and function_C
+   * are identically zero (functionF_04.h, guarded by a != NUMPHASES-1), so
+   * G_l = A_l(T)c^2 and c_mu(mu,T) = mu/(2 A_l(T)); the melt comes out at
+   * c0 * A_l(Teq)/A_l(T_local).  Because A_l = 0.5*HSN(SI,SI)@LIQUID varies by a
+   * factor of ~15 over the tabulated range, that is a tens-of-percent error at the
+   * cold end of a directional box: the melt is not initialised at c0 at all, and the
+   * far field is left permanently off-composition.
+   *
+   * Fix: evaluate Mu at the cell's own temperature, reproducing exactly the T(y)
+   * that Temperature_gradient.h will impose (T = temp_bottom + (y-1)*GRADIENT on
+   * the ghosted array, whose y-1 is this unghosted array's y).  gridinfo[].
+   * temperature is not yet populated here -- fill_domain() runs before the first
+   * apply_temperature_gradientY() -- so the scalars are rebuilt locally.
+   *
+   * With TEMPGRADY off this reduces to Teq, leaving legacy behaviour untouched.
+   * It is also a no-op for any deck with DeltaT = 0 (GRADIENT = 0 and
+   * temp_bottom = base_temp), which is how the isothermal benchmark is posed.
+   */
+  if (TEMPGRADY && !ISOTHERMAL) {
+    fill_GRADIENT    = (temperature_gradientY.DeltaT)*deltay
+                       /(temperature_gradientY.Distance);
+    fill_BASE_POS    = (temperature_gradientY.gradient_OFFSET/deltay)
+                       + ((temperature_gradientY.velocity/deltay)*(STARTTIME*deltat));
+    fill_temp_bottom = temperature_gradientY.base_temp
+                       - fill_BASE_POS*fill_GRADIENT;
+  }
+
   for(x=0;x<rows_x;x++) {
     for(z=0; z<rows_z; z++) {
       for (y=0; y<rows_y; y++) {
         index = x*layer_size + z*rows_y + y;
+        if (TEMPGRADY && !ISOTHERMAL) {
+          T_local = fill_temp_bottom + y*fill_GRADIENT;
+        } else {
+          T_local = Teq;
+        }
         PHASE_FILLED = 0;
         for (b=0; b < NUMPHASES-1; b++) {
           if (gridinfo[index].phia[b] == 1.0) {
@@ -683,7 +722,7 @@ void fill_composition_cube(struct fields* gridinfo) {
               c[k] = ceq[b][b][k];
             }
 //             init_propertymatrices(Teq);
-            Mu(c, Teq, b, gridinfo[index].compi); 
+            Mu(c, T_local, b, gridinfo[index].compi);
             for (k=0; k < NUMCOMPONENTS-1; k++) {
 //               chemical_potential = Mu(c, Teq, b, k);
 //               gridinfo[index].compi[k] = chemical_potential;
@@ -702,7 +741,7 @@ void fill_composition_cube(struct fields* gridinfo) {
   //         c[0] = 0.160413;
   //         c[1] = 0.245857;
 //           init_propertymatrices(Teq);
-          Mu(c, Teq, NUMPHASES-1, gridinfo[index].compi); 
+          Mu(c, T_local, NUMPHASES-1, gridinfo[index].compi);
           for (k=0; k < NUMCOMPONENTS-1; k++) {
 //             chemical_potential = Mu(c, Teq, NUMPHASES-1, k);
 // //             printf("chemical_potential =%le\n", chemical_potential);

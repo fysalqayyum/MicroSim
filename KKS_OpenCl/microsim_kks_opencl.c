@@ -102,6 +102,41 @@ int main(int argc, char * argv[]) {
     fill_domain(argv);
   }
 
+  /*
+   * FILL_DUMP: CPU-only audit of the initial melt, before any OpenCL call.
+   * The evolved field is compi, and every writer reconstructs composition as
+   * c_mu(compi, T_local).  A correct uniform melt therefore requires
+   * c_mu(compi, T_local) == c0 at EVERY row, not just where T_local == Teq.
+   * Set FILL_DUMP=1 and run on any CPU node to print that profile; the run
+   * exits before CL_device_kernel_build(), so it needs no GPU.
+   */
+  if (getenv("FILL_DUMP") != NULL) {
+    long dy, dindex, dx_mid, dz_mid;
+    double dT, dc[NUMCOMPONENTS-1];
+    double dGRAD=0.0, dBASE=0.0, dBOT=0.0;
+    if (TEMPGRADY && !ISOTHERMAL) {
+      dGRAD = (temperature_gradientY.DeltaT)*deltay/(temperature_gradientY.Distance);
+      dBASE = (temperature_gradientY.gradient_OFFSET/deltay)
+              + ((temperature_gradientY.velocity/deltay)*(STARTTIME*deltat));
+      dBOT  = temperature_gradientY.base_temp - dBASE*dGRAD;
+    }
+    dx_mid = rows_x/2;
+    dz_mid = (rows_z > 1) ? rows_z/2 : 0;
+    printf("FILL_DUMP Teq=%.9g TEMPGRADY=%d ISOTHERMAL=%d GRADIENT_per_cell=%.9g\n",
+           Teq, TEMPGRADY, ISOTHERMAL, dGRAD);
+    printf("FILL_DUMP_COLS y T_local phi0 c_reconstructed\n");
+    for (dy = 0; dy < rows_y; dy++) {
+      dindex = dx_mid*layer_size + dz_mid*rows_y + dy;
+      dT = (TEMPGRADY && !ISOTHERMAL) ? (dBOT + dy*dGRAD) : Teq;
+      c_mu(gridinfo[dindex].compi, dc, dT, NUMPHASES-1,
+           c_guess[NUMPHASES-1][NUMPHASES-1]);
+      printf("FILL_DUMP_ROW %ld %.9g %.6f %.12g\n",
+             dy, dT, gridinfo[dindex].phia[0], dc[0]);
+    }
+    printf("FILL_DUMP done\n");
+    exit(0);
+  }
+
   if ( rank == MASTER ) { 
     mkdir("DATA",0777);
     if (!WRITEHDF5){
