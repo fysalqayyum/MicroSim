@@ -44,7 +44,19 @@ void CL_Shift() {
   }
 
   shift_OFFSET += shift_cells;
-  apply_shiftY_local(gridinfomN, cscl, shift_cells, shift_OFFSET,
+  /*
+   * The refill temperature must use the GLOBAL cumulative shift.
+   * shift_OFFSET is reset to 0 on every restart (see the TEMPGRADY block in
+   * microsim_kks_opencl.c), so on a restarted run it counts only the shifts of
+   * the current leg, while the timestep passed below is absolute.  Mixing the
+   * two left the refilled rows colder than the imposed gradient by exactly the
+   * shift accumulated in all previous legs.  shift_position holds that
+   * pre-restart total (0 on a cold start), so shift_position + shift_OFFSET is
+   * the global shift at all times -- the same identity farfield_guard.h uses to
+   * reconstruct the absolute front position.
+   */
+  apply_shiftY_local(gridinfomN, cscl, shift_cells,
+                     shift_position + shift_OFFSET,
                      t + STARTTIME);
 
   for (x = 1; x < mpiparam.rows_x-1; x++) {
@@ -55,10 +67,18 @@ void CL_Shift() {
         idx = y + mpiparam.rows_y*(z + mpiparam.rows_z*x);
         local_after += gridinfomN[idx].composition[0];
         if (y > mpiparam.rows_y-2-shift_cells) {
+          /*
+           * Same global-shift identity as the refill above.  This audit used to
+           * repeat the refill's per-leg shift_OFFSET, so the two agreed with
+           * each other and reported a refill temperature error of exactly zero
+           * on every restarted leg -- which is why this check never caught the
+           * stale-row defect.  Both sides must use shift_position + shift_OFFSET
+           * for the audit to be independent of the bug it is meant to detect.
+           */
           expected_temperature =
               temperature_gradientY.base_temp
               + (temperature_gradientY.DeltaT/temperature_gradientY.Distance)
-                  * (((y-1) + shift_OFFSET)*deltay
+                  * (((y-1) + shift_position + shift_OFFSET)*deltay
                      - temperature_gradientY.velocity
                            * (t + STARTTIME)*deltat);
           if (gridinfomN[idx].phia[0] > local_refill_phase_max)
@@ -113,7 +133,7 @@ void CL_Shift() {
     fprintf(audit,
             "%ld,%ld,%ld,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,"
             "%.17g,%.17g,%.17g\n",
-            t + STARTTIME, shift_cells, shift_OFFSET,
+            t + STARTTIME, shift_cells, shift_position + shift_OFFSET,
             global_before, global_discarded, expected_after, global_after,
             residual, residual/fmax(fabs(expected_after), 1.0e-30),
             global_refill_phase_max, global_refill_xsi_max,
@@ -121,6 +141,12 @@ void CL_Shift() {
     fclose(audit);
   }
 
+  /*
+   * Deliberately the PER-LEG shift_OFFSET, not the global one.  On restart the
+   * device reconstructs the global shift through TPosOffset, which is derived
+   * from gradient_OFFSET after that has absorbed -shift_position*deltay.
+   * Adding shift_position here as well would double-count it.
+   */
   pfmdat.shift_OFFSET = shift_OFFSET;
 
   ret = clEnqueueWriteBuffer(cmdQ, d_pfmdat, CL_TRUE, 0,
